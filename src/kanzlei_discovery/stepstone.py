@@ -162,7 +162,7 @@ class StepstoneClient:
                 raise RuntimeError(f"{search.name}: repeated result page under a different URL")
             page_id_sets.add(signature)
             if on_page_rows is not None:
-                on_page_rows(list(rows_by_id.values()))
+                on_page_rows([rows_by_id[key] for key in dict.fromkeys(page_ids)])
 
             print(
                 f"STEPSTONE_PAGE query={safe_console(search.name)} "

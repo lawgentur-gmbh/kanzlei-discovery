@@ -71,8 +71,8 @@ def extract_detail(html,url,expected_id):
     return {'quality':'missing_fulltext','text':None}
 
 class DetailClient:
-    def __init__(self):
-        self.session=requests.Session();self.session.headers.update(DEFAULT_HEADERS);self.last=0
+    def __init__(self,browser=None):
+        self.session=browser or requests.Session();self.session.headers.update(DEFAULT_HEADERS);self.last=0
     def get(self,row,cached):
         url=row['Titel_url'];native=row['Stepstone_ID']or job_id(url)
         if not native or not portal_url(url)or job_id(url)!=native:return {'quality':'identity_error','text':None}
@@ -179,13 +179,13 @@ def run(limit=None,max_details=None):
     store=Store(conn)
     if not conn.execute("select pg_try_advisory_lock(713015,1)").fetchone()[0]:raise RuntimeError('another_stepstone_run_is_active')
     conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',VERSION,fingerprint,Jsonb({'limited':bool(limit or max_details)})))
-    all_rows={};query_summary=[];issues=[]
+    all_rows={};query_summary=[];issues=[];browser=None
     try:
         for spec in searches:
             key=digest(spec.name);history=store.history(key,fingerprint);chosen=None;errors=[];partial_rows={}
             for attempt in range(POLICY['search_attempts']):
                 try:
-                    client=StepstoneClient(delay_seconds=1,timeout_seconds=35,retries=2)
+                    client=StepstoneClient(session=browser,delay_seconds=1,timeout_seconds=35,retries=2)
                     result=client.fetch_search(spec,now().date().isoformat(),max_pages=1 if max_details else None,
                         on_page_rows=lambda rows:merge_search_rows(partial_rows,rows))
                     errors=anomalous(len(result.rows),history)
@@ -197,6 +197,10 @@ def run(limit=None,max_details=None):
                 except Exception as exc:
                     errors=[search_error_code(exc)]
                     print('SEARCH_DIAGNOSTIC',json.dumps({'search':spec.name,'attempt':attempt+1,'errors':errors}),flush=True)
+                    if browser is None and 'ReadTimeout'in errors[0]and attempt+1<POLICY['search_attempts']:
+                        from browser_transport import BrowserSession
+                        browser=BrowserSession()
+                        print('RECOVERY normal_browser_navigation',flush=True)
                 if attempt+1<POLICY['search_attempts']:time.sleep(10)
             count=len(chosen.rows)if chosen else len(partial_rows)
             if not history and count==0:errors.append('unexpected_initial_zero')
@@ -207,7 +211,7 @@ def run(limit=None,max_details=None):
             if chosen:merge_search_rows(all_rows,chosen.rows)
             else:merge_search_rows(all_rows,partial_rows.values())
             store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows)})
-        cache=store.cached();details=DetailClient();quality={};processed=0
+        cache=store.cached();details=DetailClient(browser);quality={};processed=0
         for row in all_rows.values():
             if max_details is not None and processed>=max_details:break
             native=row['Stepstone_ID']or job_id(row['Titel_url']);old=cache.get(native)
@@ -234,7 +238,9 @@ def run(limit=None,max_details=None):
         finally:
             if not(limit or max_details):notify(summary)
         raise RuntimeError(type(exc).__name__)from None
-    finally:conn.close()
+    finally:
+        if browser:browser.close()
+        conn.close()
 
 def network_probe():
     """Small cloud preflight, no DB, stored text, reverse search or publication."""
