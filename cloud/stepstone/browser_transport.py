@@ -29,10 +29,29 @@ class BrowserSession:
         if p.scheme!='https'or p.hostname!='www.stepstone.de':raise RuntimeError('browser_origin_rejected')
         page=self.context.new_page()
         try:
-            response=page.goto(url,wait_until='domcontentloaded',timeout=timeout_milliseconds(timeout))
+            # Do not wait for unrelated scripts/ads to finish parsing. Wait for
+            # the main response, then the actual job payload. Its identity and
+            # pagination are still validated by the regular parsers afterwards.
+            response=page.goto(url,wait_until='commit',timeout=timeout_milliseconds(timeout))
             if response is None:raise RuntimeError('browser_missing_response')
             final=urlsplit(page.url)
             if final.hostname!='www.stepstone.de'or final.scheme!='https':raise RuntimeError('browser_redirect_rejected')
+            if response.status==200:
+                ready='''() => {
+                  const s=window.__PRELOADED_STATE__?.['app-unifiedResultlist'];
+                  const r=s?.searchResults;
+                  return r && Array.isArray(r.items) && [r.pagination,r.unifiedPagination].some(p=>p && p.page!=null && p.pageCount!=null);
+                }'''if p.path.startswith('/jobs/')else'''() => {
+                  const job=v=>Array.isArray(v)?v.some(job):!!v && typeof v==='object' &&
+                    (((v['@type']==='JobPosting'||Array.isArray(v['@type'])&&v['@type'].includes('JobPosting'))&&typeof v.description==='string'&&v.description.length>=200)||job(v['@graph']));
+                  return [...document.querySelectorAll('script[type="application/ld+json"]')].some(n=>{try{return job(JSON.parse(n.textContent))}catch{return false}})||
+                    [...document.querySelectorAll('[data-at="job-ad-content"],[data-at="jobad-content"],[data-at="job-ad-main"],[data-at="job-ad-wrapper"]')].some(n=>n.textContent.length>=400);
+                }'''
+                try:page.wait_for_function(ready,timeout=min(10000,timeout_milliseconds(timeout)))
+                except Exception as exc:
+                    if type(exc).__name__!='TimeoutError':raise
+                    # A missing payload remains a parser/quality failure; never
+                    # convert it to a successful empty inventory.
             content=page.content()
             if p.path.startswith('/jobs/') and response.status==200:
                 state=page.evaluate('() => window.__PRELOADED_STATE__ && window.__PRELOADED_STATE__["app-unifiedResultlist"]')
