@@ -1,5 +1,5 @@
 import unittest,json
-from runtime import extract_detail,anomalous,portal_url,sample_rows,ROOT
+from runtime import extract_detail,anomalous,portal_url,sample_rows,ROOT,search_error_code
 from kanzlei_discovery.stepstone import load_searches,search_fingerprint
 from browser_transport import timeout_milliseconds
 URL='https://www.stepstone.de/stellenangebote--Test--12345678-inline.html'
@@ -26,6 +26,11 @@ class DetailTests(unittest.TestCase):
     def test_zero_always_alerts(self):self.assertTrue(anomalous(0,[4,5,4]))
     def test_browser_read_timeout_tuple(self):self.assertEqual(timeout_milliseconds((10,30)),30000)
     def test_browser_search_timeout(self):self.assertEqual(timeout_milliseconds(35),35000)
+    def test_network_diagnostic_does_not_leak_arbitrary_messages(self):
+        e=RuntimeError('secret');e.__cause__=ConnectionError('net::ERR_HTTP2_PROTOCOL_ERROR password=secret')
+        code=search_error_code(e)
+        self.assertIn('ERR_HTTP2_PROTOCOL_ERROR',code)
+        self.assertNotIn('secret',code)
     def test_survey_limits_each_search_before_global_dedupe(self):
         a=[{'id':i}for i in range(25)]
         self.assertEqual(len(sample_rows(a,2)),2)

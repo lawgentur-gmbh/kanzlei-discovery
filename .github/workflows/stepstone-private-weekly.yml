@@ -7,7 +7,7 @@ on:
       mode:
         description: 'probe: no DB; pilot: limited DB test; full: weekly acquisition'
         type: choice
-        options: [probe, pilot, survey, alert_test, full]
+        options: [probe, pilot, survey, transport_probe, alert_test, full]
         default: probe
 permissions:
   contents: read
@@ -46,6 +46,8 @@ jobs:
             python cloud/stepstone/runtime.py --limit-searches 1 --max-details 3
           elif [ "${{ inputs.mode }}" = "survey" ]; then
             python cloud/stepstone/runtime.py --sample-per-search 2
+          elif [ "${{ inputs.mode }}" = "transport_probe" ]; then
+            python cloud/stepstone/transport_probe.py
           else
             python cloud/stepstone/runtime.py
           fi
