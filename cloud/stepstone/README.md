@@ -21,9 +21,9 @@ kein Import der 170 zuvor zugeordneten Arbeitgeber-Originale.
 
 - Sonntags 05:00 UTC: 06:00 Uhr Berlin im Winter, 07:00 Uhr im Sommer.
 - GitHub Actions, unabhängig vom Benutzerrechner, höchstens ein aktiver Lauf.
-- 30 geprüfte Beruf-/Branchensuchen und ihre Filter; alle belegten Ergebnisseiten.
-  Branchen-Suchen liefern auch Business Services; Suchtreffer sind keine garantierte
-  fachliche Zuordnung. Der Bestand bleibt privat und braucht Matching-Regeln.
+- Aktuell sechs historische ungefilterte Grundsuchen aus „Kanzlei Scraper Marcel“.
+  Die gefilterte Assistenzsuche und 23 spätere Ergänzungen sind zurückgestellt;
+  die 30er-Konfiguration bleibt separat zur späteren Prüfung erhalten.
 - Detailseiten: vollständige JobPosting-Beschreibung bzw. abgegrenzter Anzeigentext.
   Suchlisten-Snippets gelten nicht als Volltext. Fehlende Texte bleiben offen.
 - Datenbank: KanzleiRadar, ausschließlich privates Schema `kr_portals`.

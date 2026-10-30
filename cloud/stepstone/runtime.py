@@ -245,7 +245,7 @@ def network_probe():
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--sample-pages',type=int,default=2);p.add_argument('--pagination-pilot',action='store_true');p.add_argument('--network-probe',action='store_true');p.add_argument('--repair-small',action='store_true');p.add_argument('--resume-only',action='store_true')
-    p.add_argument('--browser-engine',choices=['chromium','firefox'])
+    p.add_argument('--browser-engine',choices=['chromium','firefox','requests'])
     a=p.parse_args()
     if any(x is not None and x<1 for x in (a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages)):p.error('limits must be positive')
     if a.pagination_pilot and a.sample_per_search:p.error('pagination pilot and survey are separate modes')

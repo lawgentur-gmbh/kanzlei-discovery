@@ -84,6 +84,27 @@ class IncrementalTests(unittest.TestCase):
             self.assertEqual(inc.run(r),2);connect.assert_not_called()
 
 class RecoveryTests(unittest.TestCase):
+    def test_legacy_http_stops_after_two_network_failures_and_keeps_cookies(self):
+        from http_transport import RequestsTransport
+        import requests
+        transport=RequestsTransport();transport.session.cookies.set('preference','de')
+        with patch.object(transport.session,'get',side_effect=requests.ReadTimeout()),patch('http_transport.time.sleep'):
+            with self.assertRaises(requests.ReadTimeout):transport.get('https://www.stepstone.de/jobs/legal')
+        self.assertEqual(transport.session.cookies.get('preference'),'de')
+        self.assertTrue(transport.session.verify)
+        with patch.object(transport.session,'get',side_effect=requests.ReadTimeout())as get:
+            with self.assertRaises(requests.ReadTimeout):transport.get('https://www.stepstone.de/jobs/legal')
+            with self.assertRaises(TransportUnavailable):transport.get('https://www.stepstone.de/jobs/legal')
+            self.assertEqual(get.call_count,1)
+        transport.close()
+    def test_legacy_http_never_follows_third_party_redirect(self):
+        from http_transport import RequestsTransport
+        transport=RequestsTransport()
+        response=SimpleNamespace(status_code=302,url='https://www.stepstone.de/jobs/legal',headers={'location':'https://example.com/private'})
+        with patch.object(transport.session,'get',return_value=response)as get:
+            with self.assertRaisesRegex(ValueError,'redirect_rejected'):transport.get(response.url)
+            self.assertEqual(get.call_count,1)
+        transport.close()
     def test_canonical_search_preserves_functional_filters_and_page(self):
         from urllib.parse import urlsplit,parse_qs
         url='https://www.stepstone.de/jobs/assistenz?action=facet_selected%3BherdwickDisciplines%3BLegal&hdi=Legal&searchOrigin=Resultlist_top-search&q=Legal+Assistenz&page=2&l=Berlin'

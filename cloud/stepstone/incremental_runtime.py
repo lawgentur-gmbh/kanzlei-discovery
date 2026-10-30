@@ -28,12 +28,16 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
         return {'searches':queries,'distinct_jobs':len(seen),'processed':len(done),'details':quality,
                 'issues':sorted(set(issues)),'limited':limited,'resume_only':resume_only,
                 'unprocessed_searches':len(specs)-len(queries),'transport_restarts':getattr(browser,'restart_count',0),
-                'persisted_checkpoints':True,'browser_engine':browser_engine,'scope_session_restarts':getattr(browser,'scope_restarts',0),'last_transport_diagnostic':getattr(browser,'last_diagnostic',{})}
+                'persisted_checkpoints':True,'runner_os':r.os.environ.get('RUNNER_OS','local'),'browser_engine':browser_engine,'scope_session_restarts':getattr(browser,'scope_restarts',0),'last_transport_diagnostic':getattr(browser,'last_diagnostic',{})}
     if not conn.execute('select pg_try_advisory_lock(713015,1)').fetchone()[0]:
         conn.close();raise RuntimeError('another_stepstone_run_is_active')
     conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',r.VERSION,fingerprint,r.Jsonb(snapshot())))
     try:
-        browser=BrowserSession(http2=False,engine=browser_engine);cache=store.cached()
+        if browser_engine=='requests':
+            from http_transport import RequestsTransport
+            browser=RequestsTransport()
+        else:browser=BrowserSession(http2=False,engine=browser_engine)
+        cache=store.cached()
         for spec in specs:
             if r.time.monotonic()>=deadline:issues.append('run_time_budget_reached');break
             key=r.digest(spec.name);partial={};chosen=None;errors=[];pages=0
@@ -49,7 +53,7 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
             if not resume_only:
                 for attempt in range(r.POLICY['search_attempts']):
                     try:
-                        client=r.StepstoneClient(session=browser,delay_seconds=r.POLICY['http_delay_seconds'],timeout_seconds=25,retries=2)
+                        client=r.StepstoneClient(session=browser,delay_seconds=r.POLICY['http_delay_seconds'],timeout_seconds=90 if browser_engine=='requests'else 25,retries=2)
                         chosen=client.fetch_search(spec,r.now().date().isoformat(),max_pages=None if pagination_pilot else sample_pages if sample_per_search else 1 if max_details else None,on_page_rows=receive)
                         errors=r.anomalous(len(chosen.rows),store.history(key,fingerprint))
                         ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if(sample_per_search or max_details)and not pagination_pilot else set()
