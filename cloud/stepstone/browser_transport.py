@@ -36,8 +36,12 @@ class BrowserSession:
         if self.network_failures<2 and getattr(self,'manager',None)is not None:
             # Reset broken network connections while retaining the same cookies,
             # locale, client configuration and IP. Never used on 403/429/challenges.
-            storage=self.context.storage_state()
-            self.context.close();self.browser.close();time.sleep(8);self._open(storage);self.restart_count+=1
+            try:
+                storage=self.context.storage_state()
+                self.context.close();self.browser.close();time.sleep(8);self._open(storage);self.restart_count+=1
+            except Exception:
+                self.network_failures=2
+                raise TransportUnavailable('transport_restart_failed')from None
     def get(self,url,timeout=35,**kwargs):
         p=urlsplit(url)
         if p.scheme!='https'or p.hostname!='www.stepstone.de':raise RuntimeError('browser_origin_rejected')

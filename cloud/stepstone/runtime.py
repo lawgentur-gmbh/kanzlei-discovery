@@ -140,7 +140,7 @@ class Store:
                       from jsonb_to_recordset(%s::jsonb) as x(external_id text,source_url text,row_data jsonb)
                       on conflict(external_id)do update set source_url=excluded.source_url,row_data=excluded.row_data,last_seen=now(),last_run_id=excluded.last_run_id,
                         search_keys=array(select distinct unnest(kr_portals.stepstone_candidates.search_keys||excluded.search_keys)order by 1)''',(key,run_id,Jsonb(payload)))
-                count=self.conn.execute('select count(*)from kr_portals.stepstone_candidates where last_run_id=%s and %s=any(search_keys)',(run_id,key)).fetchone()[0]
+                count=self.conn.execute('select count(*)from kr_portals.stepstone_candidates where last_run_id=%s and search_keys @> array[%s]::text[]',(run_id,key)).fetchone()[0]
                 self.search_checkpoint(run_id,key,name,fingerprint,count,False,{'phase':'listing','page_responses':page_responses,'persisted_ids':count})
         except Exception as exc:raise PersistenceError(type(exc).__name__)from None
         return count
@@ -150,7 +150,7 @@ class Store:
           (run_id,key,name,fingerprint,count,healthy,Jsonb(diagnostics)))
     def queued(self,key,run_id,resume=False):
         rows=self.conn.execute('''select row_data from kr_portals.stepstone_candidates
-          where %s=any(search_keys) and (last_run_id=%s or %s)
+          where search_keys @> array[%s]::text[] and (last_run_id=%s or %s)
           order by case when detail_status in ('pending','network_error','missing_fulltext')then 0 else 1 end,first_seen,external_id''',(key,run_id,resume)).fetchall()
         return [row[0]for row in rows]
     def history(self,key,fingerprint):

@@ -74,6 +74,11 @@ class IncrementalTests(unittest.TestCase):
             self.assertEqual(inc.run(r),2);connect.assert_not_called()
 
 class RecoveryTests(unittest.TestCase):
+    def test_failed_restart_opens_circuit_instead_of_repeating_requests(self):
+        session=object.__new__(BrowserSession);session.manager=object();session.network_failures=0
+        session.context=Mock();session.context.storage_state.side_effect=RuntimeError('closed driver')
+        with self.assertRaises(TransportUnavailable):session._network_fault()
+        self.assertEqual(session.network_failures,2)
     def test_reset_retains_session_state_and_second_fault_opens_circuit(self):
         storage={'cookies':[{'name':'public-preference','value':'de'}],'origins':[]}
         session=object.__new__(BrowserSession)
