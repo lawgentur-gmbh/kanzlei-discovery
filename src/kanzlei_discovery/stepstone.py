@@ -7,7 +7,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Callable
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import requests
@@ -98,6 +98,7 @@ class StepstoneClient:
         scrape_date: str,
         *,
         max_pages: int | None = None,
+        on_page_rows: Callable[[list[dict[str, str]]], None] | None = None,
     ) -> SearchResult:
         rows_by_id: OrderedDict[str, dict[str, str]] = OrderedDict()
         raw_rows = 0
@@ -160,6 +161,8 @@ class StepstoneClient:
             if signature and signature in page_id_sets:
                 raise RuntimeError(f"{search.name}: repeated result page under a different URL")
             page_id_sets.add(signature)
+            if on_page_rows is not None:
+                on_page_rows(list(rows_by_id.values()))
 
             print(
                 f"STEPSTONE_PAGE query={safe_console(search.name)} "

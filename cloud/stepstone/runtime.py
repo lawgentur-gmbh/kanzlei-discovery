@@ -113,6 +113,13 @@ def anomalous(count,history):
     delta=abs(count-baseline)
     return [f'count={count}; baseline={baseline:g}']if delta>=POLICY['absolute_count_threshold']and delta/max(baseline,1)>POLICY['relative_count_threshold']else []
 
+def search_error_code(exc):
+    chain=[];current=exc
+    while current is not None and len(chain)<4:
+        chain.append(type(current).__name__)
+        current=current.__cause__
+    return 'search_'+'_'.join(chain)
+
 class Store:
     def __init__(self,conn):self.conn=conn
     def history(self,key,fingerprint):
@@ -175,24 +182,30 @@ def run(limit=None,max_details=None):
     all_rows={};query_summary=[];issues=[]
     try:
         for spec in searches:
-            key=digest(spec.name);history=store.history(key,fingerprint);chosen=None;errors=[]
+            key=digest(spec.name);history=store.history(key,fingerprint);chosen=None;errors=[];partial_rows={}
             for attempt in range(POLICY['search_attempts']):
                 try:
                     client=StepstoneClient(delay_seconds=1,timeout_seconds=35,retries=2)
-                    result=client.fetch_search(spec,now().date().isoformat())
+                    result=client.fetch_search(spec,now().date().isoformat(),max_pages=1 if max_details else None,
+                        on_page_rows=lambda rows:merge_search_rows(partial_rows,rows))
                     errors=anomalous(len(result.rows),history)
-                    if not result.inventory_complete:errors+=result.coverage_warnings
+                    if not result.inventory_complete:
+                        ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if max_details else set()
+                        errors+=[x for x in result.coverage_warnings if x not in ignored]
                     chosen=result
                     if not errors:break
-                except Exception as exc:errors=['search_'+type(exc).__name__]
+                except Exception as exc:
+                    errors=[search_error_code(exc)]
+                    print('SEARCH_DIAGNOSTIC',json.dumps({'search':spec.name,'attempt':attempt+1,'errors':errors}),flush=True)
                 if attempt+1<POLICY['search_attempts']:time.sleep(10)
-            count=len(chosen.rows)if chosen else 0
+            count=len(chosen.rows)if chosen else len(partial_rows)
             if not history and count==0:errors.append('unexpected_initial_zero')
-            healthy=not errors and chosen is not None
+            healthy=not errors and chosen is not None and not max_details
             conn.execute('insert into kr_portals.search_runs(run_id,search_key,search_name,fingerprint,distinct_count,healthy,diagnostics)values(%s,%s,%s,%s,%s,%s,%s)',(run_id,key,spec.name,fingerprint,count,healthy,Jsonb({'errors':errors})))
             query_summary.append({'name':spec.name,'count':count,'healthy':healthy,'errors':errors})
             if errors:issues.append('search_quality')
             if chosen:merge_search_rows(all_rows,chosen.rows)
+            else:merge_search_rows(all_rows,partial_rows.values())
             store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows)})
         cache=store.cached();details=DetailClient();quality={};processed=0
         for row in all_rows.values():
