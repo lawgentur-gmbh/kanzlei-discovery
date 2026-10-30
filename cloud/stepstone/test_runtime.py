@@ -1,6 +1,7 @@
 import unittest,json
 from runtime import extract_detail,anomalous,portal_url,sample_rows,ROOT,search_error_code,detail_priority,now,capture_page,TimeBudgetReached
 from kanzlei_discovery.stepstone import load_searches,search_fingerprint
+from kanzlei_discovery.stepstone import parse_result_state
 from browser_transport import timeout_milliseconds,BrowserSession
 URL='https://www.stepstone.de/stellenangebote--Test--12345678-inline.html'
 TEXT='Ihre Aufgaben Sie beraten in Rechtsfragen. Ihr Profil Sie sind Volljurist. Wir bieten gute Bedingungen. '*10
@@ -57,6 +58,37 @@ class DetailTests(unittest.TestCase):
         captured={};row={'Stepstone_ID':'12345678','Titel_url':URL}
         with self.assertRaises(TimeBudgetReached):capture_page(captured,[row],0)
         self.assertEqual(list(captured),['12345678'])
+    def test_targeted_readiness_accepts_payload_without_full_dom_event(self):
+        from types import SimpleNamespace
+        state={'searchResults':{'items':[{'id':1}],'pagination':{'page':1,'pageCount':2}}}
+        class Page:
+            url='https://www.stepstone.de/jobs/test'
+            closed=False
+            def goto(self,url,**kw):
+                if kw['wait_until']!='commit':raise TimeoutError('unrelated resource stalled')
+                return SimpleNamespace(status=200,headers={'content-type':'text/html'})
+            def wait_for_function(self,*a,**kw):pass
+            def content(self):return '<html>still parsing other scripts</html>'
+            def evaluate(self,*a):return state
+            def close(self):self.closed=True
+        page=Page();session=object.__new__(BrowserSession)
+        session.context=SimpleNamespace(new_page=lambda:page)
+        response=session.get(page.url)
+        self.assertEqual(parse_result_state(response.text),state)
+        self.assertTrue(page.closed)
+    def test_missing_ready_payload_is_not_a_zero_inventory(self):
+        from types import SimpleNamespace
+        class Page:
+            url='https://www.stepstone.de/jobs/test'
+            def goto(self,*a,**kw):return SimpleNamespace(status=200,headers={'content-type':'text/html'})
+            def wait_for_function(self,*a,**kw):raise TimeoutError('not ready')
+            def content(self):return '<html>loading</html>'
+            def evaluate(self,*a):return None
+            def close(self):pass
+        page=Page();session=object.__new__(BrowserSession)
+        session.context=SimpleNamespace(new_page=lambda:page)
+        response=session.get(page.url)
+        with self.assertRaises(RuntimeError):parse_result_state(response.text)
     def test_survey_limits_each_search_before_global_dedupe(self):
         a=[{'id':i}for i in range(25)]
         self.assertEqual(len(sample_rows(a,2)),2)

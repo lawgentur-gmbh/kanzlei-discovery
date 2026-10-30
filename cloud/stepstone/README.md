@@ -42,8 +42,15 @@ Seit dem Cloudvergleich vom 30.10. nutzt der Lauf normale Chromium-Navigation
 mit HTTP/1.1 ab Beginn für Listen und Details. Im Vergleich lief requests in
 Timeouts; Standard-Chromium scheiterte nach der ersten Navigation. HTTP/1.1
 lieferte auf beiden Kontrollsuchen HTTP200 und jeweils 25 Treffer.
-Der erste planmäßige Vollumfangslauf steht noch aus; aus drei Pilotanzeigen folgt
-keine pauschale Vollständigkeitszusage für alle sieben Suchen.
+Die erweiterte Stichprobe las alle 30 Suchen über zwei Seiten und verarbeitete
+58 Anzeigen mit Originaltext. Eine weitere Prüfung las alle 30 angebotenen
+Notarfachangestellten-Seiten. Dabei wich die native ID-Menge von der Trefferzahl
+der Quelle ab; solche Widersprüche bleiben als Teilbefund sichtbar.
+Seit der zweiten Korrektur wird nach der Hauptantwort auf die eigentlichen
+Such-/Jobdaten statt auf das gesamte DOM-Ladeereignis gewartet. Unvollständig
+geladene Seiten gelten weiterhin als Fehler, niemals als Nullbestand.
+Der erste planmäßige Vollumfangslauf steht noch aus; Stichproben belegen keine
+pauschale Gesamtmarktabdeckung oder aktuelle Vollständigkeit aller Suchen.
 
 Plattformgrenze: GitHub kann öffentliche Repository-Zeitpläne nach 60 Tagen ohne
 Repository-Aktivität deaktivieren. Ein zusätzliches automatisches Wartungsschreiben

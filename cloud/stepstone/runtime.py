@@ -213,11 +213,17 @@ def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagina
             if time.monotonic()>=deadline:
                 issues.append('run_time_budget_reached');break
             key=digest(spec.name);history=store.history(key,fingerprint);chosen=None;errors=[];partial_rows={}
+            page_responses=0
+            def receive_page(rows):
+                nonlocal page_responses
+                capture_page(partial_rows,rows,deadline);page_responses+=1
+                if page_responses%5==0:
+                    store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows),'current_search':{'name':spec.name,'page_responses':page_responses,'unique_jobs_observed':len(partial_rows)}})
             for attempt in range(POLICY['search_attempts']):
                 try:
                     client=StepstoneClient(session=browser,delay_seconds=1,timeout_seconds=35,retries=2)
                     result=client.fetch_search(spec,now().date().isoformat(),max_pages=None if pagination_pilot else sample_pages if sample_per_search else 1 if max_details else None,
-                        on_page_rows=lambda rows:capture_page(partial_rows,rows,deadline))
+                        on_page_rows=receive_page)
                     errors=anomalous(len(result.rows),history)
                     if not result.inventory_complete:
                         ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if(max_details or sample_per_search)and not pagination_pilot else set()
