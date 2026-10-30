@@ -6,7 +6,7 @@ Only public StepStone HTTPS pages, images/fonts/media not downloaded.
 import json,re,time
 from dataclasses import dataclass
 from kanzlei_discovery.stepstone import STATE_MARKER
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit,parse_qs
 import requests
 
 class TransportUnavailable(requests.ConnectionError):pass
@@ -21,12 +21,14 @@ class PageResponse:
         if self.status_code>=400:raise requests.HTTPError(f'HTTP {self.status_code}')
 
 class BrowserSession:
-    def __init__(self,http2=True):
+    def __init__(self,http2=True,engine='chromium'):
         from playwright.sync_api import sync_playwright
-        self.manager=sync_playwright().start();self.http2=http2;self.network_failures=0;self.restart_count=0;self.headers={}
+        self.manager=sync_playwright().start();self.http2=http2;self.engine=engine;self.network_failures=0;self.restart_count=0;self.headers={};self.last_diagnostic={}
         self._open()
     def _open(self,storage=None):
-        self.browser=self.manager.chromium.launch(headless=True,args=[]if self.http2 else['--disable-http2'])
+        if self.engine=='firefox':self.browser=self.manager.firefox.launch(headless=True)
+        elif self.engine=='chromium':self.browser=self.manager.chromium.launch(headless=True,args=[]if self.http2 else['--disable-http2'])
+        else:raise ValueError('unsupported_browser_engine')
         options={'locale':'de-DE'}
         if storage is not None:options['storage_state']=storage
         self.context=self.browser.new_context(**options)
@@ -46,6 +48,9 @@ class BrowserSession:
         p=urlsplit(url)
         if p.scheme!='https'or p.hostname!='www.stepstone.de':raise RuntimeError('browser_origin_rejected')
         if getattr(self,'network_failures',0)>=2:raise TransportUnavailable('consecutive_network_failures')
+        page_number=parse_qs(p.query).get('page',['1'])[0]
+        diag={'kind':'listing'if p.path.startswith('/jobs/')else'detail','page':int(page_number)if page_number.isdigit()and len(page_number)<7 else None,'stage':'navigation','main_status':None}
+        self.last_diagnostic=diag;started=time.monotonic()
         page=self.context.new_page()
         try:
             # Do not wait for unrelated scripts/ads to finish parsing. Wait for
@@ -53,6 +58,7 @@ class BrowserSession:
             # pagination are still validated by the regular parsers afterwards.
             response=page.goto(url,wait_until='commit',timeout=timeout_milliseconds(timeout))
             if response is None:raise RuntimeError('browser_missing_response')
+            diag.update(stage='payload',main_status=response.status)
             final=urlsplit(page.url)
             if final.hostname!='www.stepstone.de'or final.scheme!='https':raise RuntimeError('browser_redirect_rejected')
             if response.status==200:
@@ -76,8 +82,10 @@ class BrowserSession:
                 state=page.evaluate('() => window.__PRELOADED_STATE__ && window.__PRELOADED_STATE__["app-unifiedResultlist"]')
                 if isinstance(state,dict):content='<script>'+STATE_MARKER+' = '+json.dumps(state,ensure_ascii=False)+';</script>'
             self.network_failures=0
+            diag.update(stage='returned',milliseconds=round((time.monotonic()-started)*1000))
             return PageResponse(page.url,content,response.status,dict(response.headers))
         except Exception as exc:
+            diag.update(error=type(exc).__name__,milliseconds=round((time.monotonic()-started)*1000))
             if type(exc).__name__=='TimeoutError':
                 self._network_fault();raise requests.ReadTimeout('browser_navigation_timeout')from None
             if type(exc).__name__=='Error':

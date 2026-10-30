@@ -7,7 +7,7 @@ on:
       mode:
         description: 'probe: no DB; pilot: limited DB test; full: weekly acquisition'
         type: choice
-        options: [probe, pilot, checkpoint_test, repair_small, repair_resume, repair_endurance, survey, pagination_pilot, transport_probe, transport_http1, alert_test, full]
+        options: [probe, pilot, checkpoint_test, repair_small, repair_firefox, repair_resume, repair_endurance, survey, pagination_pilot, transport_probe, transport_http1, alert_test, full]
         default: probe
 permissions:
   contents: read
@@ -33,7 +33,7 @@ jobs:
           cache-dependency-path: cloud/stepstone/requirements.txt
       - run: pip install -r cloud/stepstone/requirements.txt
       - name: Install browser for bounded timeout recovery
-        run: python -m playwright install --with-deps chromium
+        run: python -m playwright install --with-deps chromium firefox
       - name: Check contracts
         run: python -m unittest discover -s cloud/stepstone -p 'test_*.py'
       - name: Acquire portal jobs into private database only
@@ -48,6 +48,9 @@ jobs:
             python cloud/stepstone/checkpoint_probe.py
           elif [ "${{ inputs.mode }}" = "repair_small" ]; then
             python cloud/stepstone/runtime.py --repair-small
+          elif [ "${{ inputs.mode }}" = "repair_firefox" ]; then
+            sleep 60
+            python cloud/stepstone/runtime.py --repair-small --browser-engine firefox
           elif [ "${{ inputs.mode }}" = "repair_resume" ]; then
             python cloud/stepstone/runtime.py --repair-small --resume-only --max-details 5
           elif [ "${{ inputs.mode }}" = "repair_endurance" ]; then

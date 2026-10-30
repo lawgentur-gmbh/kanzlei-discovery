@@ -222,9 +222,9 @@ def detail_priority(row,cache):
     good=old.get('detail_quality')in {'fulltext','not_modified','cached_fresh'}
     return (has_text and good,has_text,old.get('last_detail_check')or datetime.min.replace(tzinfo=timezone.utc))
 
-def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False,repair=False,resume_only=False):
+def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False,repair=False,resume_only=False,browser_engine='chromium'):
     from incremental_runtime import run as incremental_run
-    return incremental_run(sys.modules[__name__],limit,max_details,sample_per_search,sample_pages,pagination_pilot,repair,resume_only)
+    return incremental_run(sys.modules[__name__],limit,max_details,sample_per_search,sample_pages,pagination_pilot,repair,resume_only,browser_engine)
 
 
 def network_probe():
@@ -245,7 +245,8 @@ def network_probe():
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--sample-pages',type=int,default=2);p.add_argument('--pagination-pilot',action='store_true');p.add_argument('--network-probe',action='store_true');p.add_argument('--repair-small',action='store_true');p.add_argument('--resume-only',action='store_true')
+    p.add_argument('--browser-engine',choices=['chromium','firefox'],default='chromium')
     a=p.parse_args()
     if any(x is not None and x<1 for x in (a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages)):p.error('limits must be positive')
     if a.pagination_pilot and a.sample_per_search:p.error('pagination pilot and survey are separate modes')
-    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages,a.pagination_pilot,a.repair_small,a.resume_only))
+    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages,a.pagination_pilot,a.repair_small,a.resume_only,a.browser_engine))

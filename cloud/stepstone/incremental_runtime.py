@@ -3,7 +3,7 @@ from browser_transport import BrowserSession
 
 GOOD={'fulltext','cached_fresh','not_modified'}
 
-def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False,repair=False,resume_only=False):
+def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False,repair=False,resume_only=False,browser_engine='chromium'):
     if repair and sample_per_search is None:sample_per_search=2
     if pagination_pilot:max_details=3
     limited=bool(limit or max_details or sample_per_search or resume_only or repair)
@@ -26,12 +26,12 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
         return {'searches':queries,'distinct_jobs':len(seen),'processed':len(done),'details':quality,
                 'issues':sorted(set(issues)),'limited':limited,'resume_only':resume_only,
                 'unprocessed_searches':len(specs)-len(queries),'transport_restarts':getattr(browser,'restart_count',0),
-                'persisted_checkpoints':True}
+                'persisted_checkpoints':True,'browser_engine':browser_engine,'last_transport_diagnostic':getattr(browser,'last_diagnostic',{})}
     if not conn.execute('select pg_try_advisory_lock(713015,1)').fetchone()[0]:
         conn.close();raise RuntimeError('another_stepstone_run_is_active')
     conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',r.VERSION,fingerprint,r.Jsonb(snapshot())))
     try:
-        browser=BrowserSession(http2=False);cache=store.cached()
+        browser=BrowserSession(http2=False,engine=browser_engine);cache=store.cached()
         for spec in specs:
             if r.time.monotonic()>=deadline:issues.append('run_time_budget_reached');break
             key=r.digest(spec.name);partial={};chosen=None;errors=[];pages=0
@@ -65,7 +65,7 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
             queued=store.queued(key,run_id,resume=resume_only)
             if resume_only:r.merge_search_rows(seen,queued)
             count=len(chosen.rows)if chosen else len(partial)if not resume_only else len(queued)
-            if not resume_only and count==0:errors.append('unverified_empty_inventory')
+            if not resume_only and count==0 and not(chosen and chosen.inventory_complete):errors.append('unverified_empty_inventory')
             q={'name':spec.name,'count':count,'errors':errors,'healthy':not errors and chosen is not None and not limited,
                'pages':chosen.pages if chosen else pages,'scope_complete':chosen.inventory_complete if chosen else False,
                'declared_total':chosen.declared_total if chosen else None,'offered_pages':chosen.offered_pages if chosen else None,
@@ -91,10 +91,13 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
                 q['details_processed']+=1;q['detail_quality'][label]=q['detail_quality'].get(label,0)+1
                 if len(done)%10==0:store.touch(run_id,'running',snapshot())
             cache=store.cached()
+            if getattr(browser,'network_failures',0)>=2:issues.append('transport_unavailable')
             store.search_checkpoint(run_id,key,spec.name,fingerprint,count,q['healthy'],{'phase':'search_committed','errors':errors,'persisted_ids':len(queued),'details_processed':q['details_processed'],'detail_quality':q['detail_quality']})
             store.touch(run_id,'running',snapshot())
             print('SEARCH_COMMITTED',r.json.dumps(q,ensure_ascii=False),flush=True)
             if 'transport_unavailable'in issues or 'run_time_budget_reached'in issues:break
+            if any(e.startswith('search_')or e=='unverified_empty_inventory'for e in errors):
+                issues.append('search_incomplete');break
             if max_details and len(done)>=max_details:break
             r.time.sleep(r.POLICY['search_delay_seconds'])
         good=sum(v for k,v in quality.items()if k in GOOD)
