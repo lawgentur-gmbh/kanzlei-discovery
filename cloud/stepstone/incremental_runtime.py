@@ -26,7 +26,7 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
         return {'searches':queries,'distinct_jobs':len(seen),'processed':len(done),'details':quality,
                 'issues':sorted(set(issues)),'limited':limited,'resume_only':resume_only,
                 'unprocessed_searches':len(specs)-len(queries),'transport_restarts':getattr(browser,'restart_count',0),
-                'persisted_checkpoints':True,'browser_engine':browser_engine,'last_transport_diagnostic':getattr(browser,'last_diagnostic',{})}
+                'persisted_checkpoints':True,'browser_engine':browser_engine,'scope_session_restarts':getattr(browser,'scope_restarts',0),'last_transport_diagnostic':getattr(browser,'last_diagnostic',{})}
     if not conn.execute('select pg_try_advisory_lock(713015,1)').fetchone()[0]:
         conn.close();raise RuntimeError('another_stepstone_run_is_active')
     conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',r.VERSION,fingerprint,r.Jsonb(snapshot())))
@@ -100,6 +100,7 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
                 issues.append('search_incomplete');break
             if max_details and len(done)>=max_details:break
             r.time.sleep(r.POLICY['search_delay_seconds'])
+            if len(queries)<len(specs):browser.next_search()
         good=sum(v for k,v in quality.items()if k in GOOD)
         if not done or good/max(len(done),1)<r.POLICY['minimum_fulltext_fraction']:issues.append('fulltext_coverage')
         summary=snapshot();summary['pending_details_observed']=max(0,len(seen)-len(done))

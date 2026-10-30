@@ -23,7 +23,7 @@ class PageResponse:
 class BrowserSession:
     def __init__(self,http2=True,engine='chromium'):
         from playwright.sync_api import sync_playwright
-        self.manager=sync_playwright().start();self.http2=http2;self.engine=engine;self.network_failures=0;self.restart_count=0;self.headers={};self.last_diagnostic={}
+        self.manager=sync_playwright().start();self.http2=http2;self.engine=engine;self.network_failures=0;self.restart_count=0;self.scope_restarts=0;self.headers={};self.last_diagnostic={}
         self._open()
     def _open(self,storage=None):
         if self.engine=='firefox':self.browser=self.manager.firefox.launch(headless=True)
@@ -44,6 +44,11 @@ class BrowserSession:
             except Exception:
                 self.network_failures=2
                 raise TransportUnavailable('transport_restart_failed')from None
+    def next_search(self):
+        if self.network_failures:raise TransportUnavailable('unhealthy_transport_at_scope_boundary')
+        storage=self.context.storage_state()
+        self.context.close();self.browser.close();self._open(storage)
+        self.scope_restarts+=1
     def get(self,url,timeout=35,**kwargs):
         p=urlsplit(url)
         if p.scheme!='https'or p.hostname!='www.stepstone.de':raise RuntimeError('browser_origin_rejected')

@@ -13,7 +13,7 @@ class IncrementalTests(unittest.TestCase):
         state={'queue':{},'jobs':{},'events':[],'summaries':[],'fetches':0}
         browser=SimpleNamespace(network_failures=0,restart_count=0,close=lambda:None)
         def new_browser(**kw):
-            state['browser']=SimpleNamespace(network_failures=0,restart_count=0,close=lambda:None)
+            state['browser']=SimpleNamespace(network_failures=0,restart_count=0,close=lambda:None,next_search=lambda:state['events'].append('next_search'))
             return state['browser']
         conn=Mock();conn.execute.return_value.fetchone.return_value=(True,)
         class Store:
@@ -52,6 +52,7 @@ class IncrementalTests(unittest.TestCase):
         self.assertEqual(self.run_with(stack,limit=2),2)
         self.assertIn('100',state['jobs'])
         self.assertEqual(state['events'][:2],['checkpoint','save'])
+        self.assertEqual(state['events'][2],'next_search')
     def test_resume_reads_durable_queue_without_new_listing_requests(self):
         def broken(state,browser,emit):
             emit([row('200')]);browser.network_failures=2;raise r.requests.ReadTimeout('network failure')
@@ -74,6 +75,15 @@ class IncrementalTests(unittest.TestCase):
             self.assertEqual(inc.run(r),2);connect.assert_not_called()
 
 class RecoveryTests(unittest.TestCase):
+    def test_scope_boundary_releases_old_browser_but_retains_session(self):
+        state={'cookies':[],'origins':[]};events=[]
+        session=object.__new__(BrowserSession);session.network_failures=0;session.scope_restarts=0
+        session.context=SimpleNamespace(storage_state=lambda:state,close=lambda:events.append('context_closed'))
+        session.browser=SimpleNamespace(close=lambda:events.append('browser_closed'))
+        session._open=lambda saved:events.append(('opened',saved))
+        session.next_search()
+        self.assertEqual(events,['context_closed','browser_closed',('opened',state)])
+        self.assertEqual(session.scope_restarts,1)
     def test_failed_restart_opens_circuit_instead_of_repeating_requests(self):
         session=object.__new__(BrowserSession);session.manager=object();session.network_failures=0
         session.context=Mock();session.context.storage_state.side_effect=RuntimeError('closed driver')
