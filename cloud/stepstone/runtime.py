@@ -117,7 +117,7 @@ def search_error_code(exc):
     chain=[];current=exc
     while current is not None and len(chain)<4:
         chain.append(type(current).__name__)
-        code=re.search(r'net::ERR_[A-Z0-9_]+',str(current))
+        code=re.search(r'net::ERR_[A-Z0-9_]+|NS_ERROR_[A-Z0-9_]+|SSL_ERROR_[A-Z0-9_]+',str(current))
         if code:chain.append(code.group().replace('net::',''))
         current=current.__cause__
     return 'search_'+'_'.join(chain)

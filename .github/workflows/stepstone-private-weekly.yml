@@ -7,7 +7,7 @@ on:
       mode:
         description: 'probe: no DB; pilot: limited DB test; full: weekly acquisition'
         type: choice
-        options: [probe, pilot, checkpoint_test, repair_small, repair_firefox, repair_resume, repair_endurance, survey, pagination_pilot, transport_probe, transport_http1, alert_test, full]
+        options: [probe, pilot, checkpoint_test, repair_small, repair_firefox, repair_resume, repair_resume_firefox, repair_endurance, survey, pagination_pilot, transport_probe, transport_http1, alert_test, full]
         default: probe
 permissions:
   contents: read
@@ -53,6 +53,9 @@ jobs:
             python cloud/stepstone/runtime.py --repair-small --browser-engine firefox
           elif [ "${{ inputs.mode }}" = "repair_resume" ]; then
             python cloud/stepstone/runtime.py --repair-small --resume-only --max-details 5
+          elif [ "${{ inputs.mode }}" = "repair_resume_firefox" ]; then
+            sleep 60
+            python cloud/stepstone/runtime.py --repair-small --resume-only --max-details 5 --browser-engine firefox
           elif [ "${{ inputs.mode }}" = "repair_endurance" ]; then
             python cloud/stepstone/runtime.py --repair-small --sample-pages 5 --sample-per-search 3
           elif [ "${{ inputs.mode }}" = "survey" ]; then

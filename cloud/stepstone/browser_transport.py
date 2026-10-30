@@ -89,7 +89,8 @@ class BrowserSession:
             if type(exc).__name__=='TimeoutError':
                 self._network_fault();raise requests.ReadTimeout('browser_navigation_timeout')from None
             if type(exc).__name__=='Error':
-                code=re.search(r'net::ERR_[A-Z0-9_]+',str(exc))
+                code=re.search(r'net::ERR_[A-Z0-9_]+|NS_ERROR_[A-Z0-9_]+|SSL_ERROR_[A-Z0-9_]+',str(exc))
+                if code:diag['network_code']=code.group()
                 self._network_fault()
                 raise requests.ConnectionError('browser_navigation_error'+(':'+code.group()if code else''))from None
             raise
