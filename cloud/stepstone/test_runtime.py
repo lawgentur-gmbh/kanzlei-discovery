@@ -94,9 +94,13 @@ class DetailTests(unittest.TestCase):
         self.assertEqual(len(sample_rows(a,2)),2)
         self.assertIs(sample_rows(a),a)
     def test_candidate_scope_keeps_existing_filter_and_changes_baseline(self):
-        old=load_searches(ROOT/'config/stepstone_searches.json')[:7]
+        old=load_searches(ROOT/'config/stepstone_searches_base.json')
         new=load_searches(ROOT/'config/stepstone_searches_candidate.json')
-        self.assertEqual(new[:len(old)],old)
+        self.assertEqual(load_searches(ROOT/'config/stepstone_searches.json'),old)
+        self.assertEqual(len(old),6)
+        self.assertTrue(all(not s.required_filters for s in old))
+        self.assertTrue({s.name for s in old}<={s.name for s in new})
+        self.assertTrue(next(s for s in new if s.name=='Assistenz Recht').required_filters)
         self.assertGreater(len(new),len(old))
         self.assertEqual(len({s.name for s in new}),len(new))
         self.assertNotEqual(search_fingerprint(old),search_fingerprint(new))

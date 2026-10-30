@@ -10,8 +10,8 @@ from browser_transport import BrowserSession
 from runtime import ROOT,search_error_code
 
 def probe(http1=False):
-    specs=load_searches(ROOT/'config/stepstone_searches_candidate.json')
-    selected=[specs[1],specs[15]]
+    specs=load_searches(ROOT/'config/stepstone_searches_base.json')
+    selected=[specs[0],specs[1]]
     outcomes=[]
     for mode in (('chromium_http1',)if http1 else('requests','chromium')):
         session=requests.Session()if mode=='requests'else BrowserSession(http2=mode!='chromium_http1')

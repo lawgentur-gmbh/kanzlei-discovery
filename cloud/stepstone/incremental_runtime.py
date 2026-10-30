@@ -16,7 +16,7 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
         return 2
     specs=r.load_searches(r.ROOT/'config/stepstone_searches.json')
     if repair:
-        names={'Rechtsanwaltsfachangestellter','Notarfachangestellter','Assistenz Recht','Steuerberater'}
+        names={'Rechtsanwaltsfachangestellter','Notarfachangestellter','Rechtsanwalt/Rechtsanwältin','Legal Counsel','Unternehmensjurist/in','Syndikusrechtsanwalt'}
         specs=[s for s in specs if s.name in names]
     if pagination_pilot:specs=[next(s for s in specs if s.name=='Notarfachangestellter')]
     if limit:specs=specs[:limit]
