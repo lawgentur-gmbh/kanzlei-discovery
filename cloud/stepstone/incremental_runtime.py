@@ -5,6 +5,7 @@ GOOD={'fulltext','cached_fresh','not_modified'}
 
 def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False,repair=False,resume_only=False,browser_engine='chromium'):
     if repair and sample_per_search is None:sample_per_search=2
+    if resume_only:sample_per_search=None
     if pagination_pilot:max_details=3
     limited=bool(limit or max_details or sample_per_search or resume_only or repair)
     if not limited and not r.POLICY.get('large_run_enabled',False):

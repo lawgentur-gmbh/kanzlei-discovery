@@ -70,6 +70,15 @@ class IncrementalTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'PersistenceError'):self.run_with(stack,limit=1)
         self.assertEqual(state['fetches'],1)
         self.assertEqual(state['summaries'][-1][0],'failed')
+    def test_resume_honors_total_detail_budget_instead_of_listing_sample_cap(self):
+        def broken(state,browser,emit):
+            emit([row(str(300+i))for i in range(7)])
+            browser.network_failures=2;raise r.requests.ReadTimeout('network failure')
+        state,stack=self.harness(broken)
+        self.run_with(stack,limit=1)
+        self.assertEqual(self.run_with(stack,repair=True,resume_only=True,max_details=5),0)
+        self.assertEqual(len(state['jobs']),5)
+        self.assertEqual(state['fetches'],1)
     def test_large_run_gate_prevents_connection_or_fetch(self):
         with patch.object(r,'POLICY',{**r.POLICY,'large_run_enabled':False}),patch.object(r,'notify'),patch.object(r.psycopg,'connect')as connect,patch('builtins.print'):
             self.assertEqual(inc.run(r),2);connect.assert_not_called()

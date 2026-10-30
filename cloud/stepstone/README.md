@@ -1,5 +1,20 @@
 # Privates StepStone-Archiv
 
+Reparaturstand 30.10.: `large_run_enabled=false`. Der große manuelle Lauf und
+der große Sonntagsabruf sind bis zur bestandenen Cloud-Abnahme technisch gesperrt.
+Der vorhandene Zeitplan bleibt konfiguriert; seine Ausführung startet bei gesetzter
+Sperre keinen Crawl. Kleine gezielt gestartete Tests sind separat begrenzt.
+
+Seit Version 3 werden Kandidaten und Such-Checkpoints nach jeder Seite atomar
+in `kr_portals.stepstone_candidates` / `search_runs` gespeichert. Jeder Bereich
+verarbeitet seine Texte vor dem nächsten Bereich. `repair_resume` verarbeitet
+die dauerhaft gespeicherte Warteschlange ohne erneute Suchlistenabrufe.
+Strikt sequenziell: zwei Sekunden Abstand zwischen Seiten, 45 Sekunden zwischen
+Bereichen; vorheriger Browser wird vor dem nächsten geschlossen, Sitzung bleibt
+erhalten. Zwei aufeinanderfolgende Netzwerkfehler stoppen den Test frühzeitig.
+Ein Neustart nach Netzwerkfehlern erhält Cookies und IP und ist begrenzt.
+Ein einzelner erfolgreicher Bereich gilt ausdrücklich nicht als Abnahme.
+
 Nutzerauftrag 30.10.2026. Ausschließlich Erfassung und interne Aufbewahrung.
 Keine Reverse-Suche, kein Arbeitgeber-Crawl, keine STEREJO-Veröffentlichung und
 kein Import der 170 zuvor zugeordneten Arbeitgeber-Originale.

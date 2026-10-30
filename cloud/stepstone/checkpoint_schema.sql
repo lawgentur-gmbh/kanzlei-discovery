@@ -15,3 +15,4 @@ GRANT SELECT,INSERT,UPDATE ON kr_portals.stepstone_candidates TO stepstone_archi
 CREATE POLICY stepstone_candidate_writer ON kr_portals.stepstone_candidates TO stepstone_archive_writer USING(true) WITH CHECK(true);
 CREATE INDEX stepstone_candidates_search_keys ON kr_portals.stepstone_candidates USING gin(search_keys);
 CREATE INDEX stepstone_candidates_pending ON kr_portals.stepstone_candidates(detail_status,last_seen);
+CREATE INDEX stepstone_candidates_run ON kr_portals.stepstone_candidates(last_run_id);
