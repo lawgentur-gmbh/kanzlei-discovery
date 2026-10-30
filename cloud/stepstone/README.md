@@ -29,4 +29,15 @@ kein Import der 170 zuvor zugeordneten Arbeitgeber-Originale.
 
 Der alte Windows-Wochenlauf, Octoparse-Export und alte GitHub-Pipeline sind
 kein zusätzlicher StepStone-Erfassungsweg. Produktiver Job Monitor unverändert.
-Cloud-Aktivierung erst nach Prüfung des neuen Geheimnisses und einem echten Pilotlauf.
+Cloud-Aktivierung am 30.10.2026 nach ausdrücklicher Secret-Freigabe und erfolgreichem
+Datenbank-Pilot: drei Anzeigen mit vollständigem Text, drei Textblöcke, drei
+Zustandsversionen, unabhängig in der Datenbank bestätigt. Warnweg ebenfalls getestet.
+Bei HTTP-Lese-Timeouts wird einmal auf normale Chromium-Navigation zurückgefallen.
+Der erste planmäßige Vollumfangslauf steht noch aus; aus drei Pilotanzeigen folgt
+keine pauschale Vollständigkeitszusage für alle sieben Suchen.
+
+Plattformgrenze: GitHub kann öffentliche Repository-Zeitpläne nach 60 Tagen ohne
+Repository-Aktivität deaktivieren. Ein zusätzliches automatisches Wartungsschreiben
+wurde von der Freigabeprüfung abgelehnt und ist nicht eingerichtet. Kein verborgenes
+Keepalive oder weiterer Zeitplan. GitHub-Laufzeiten können gegenüber der Sollzeit
+abweichen. Dokumentation: https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule
