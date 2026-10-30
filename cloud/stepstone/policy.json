@@ -7,5 +7,6 @@
   "detail_refresh_days": 6,
   "search_attempts": 2,
   "http_delay_seconds": 1.0,
+  "maximum_run_seconds": 14400,
   "description": "Internal portal archive only. No reverse search, employer crawling, publication, absence closures, or deletion."
 }

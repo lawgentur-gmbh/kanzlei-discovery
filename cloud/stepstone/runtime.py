@@ -128,7 +128,7 @@ class Store:
         return [x[0]for x in self.conn.execute('select distinct_count from kr_portals.search_runs where search_key=%s and fingerprint=%s and healthy order by finished_at desc limit 4',(key,fingerprint)).fetchall()]
     def cached(self):
         with self.conn.cursor(row_factory=psycopg.rows.dict_row)as c:
-            c.execute("select external_id,etag,last_modified,last_detail_check,text_hash is not null as has_fulltext from kr_portals.jobs where provider='stepstone'")
+            c.execute("select external_id,etag,last_modified,last_detail_check,detail_quality,text_hash is not null as has_fulltext from kr_portals.jobs where provider='stepstone'")
             return {r['external_id']:r for r in c.fetchall()}
     def save_job(self,row,detail,run_id):
         native=row['Stepstone_ID']or job_id(row['Titel_url'])
@@ -152,7 +152,7 @@ class Store:
             self.conn.execute('''insert into kr_portals.versions(provider,external_id,state_hash,metadata,text_hash,first_seen,last_seen,seen_count)
                 values('stepstone',%s,%s,%s,%s,now(),now(),1)on conflict(provider,external_id,state_hash)do update set last_seen=now(),seen_count=kr_portals.versions.seen_count+1''',(native,state_hash,Jsonb(metadata),current_hash))
     def touch(self,run_id,status,summary):
-        self.conn.execute('update kr_portals.runs set status=%s,summary=%s,finished_at=now() where id=%s',(status,Jsonb(summary),run_id))
+        self.conn.execute("update kr_portals.runs set status=%s,summary=%s,finished_at=case when %s='running' then null else now()end where id=%s",(status,Jsonb(summary),status,run_id))
 
 def notify(summary,test=False):
     """One assigned GitHub notification per persistent weekly incident."""
@@ -179,6 +179,18 @@ def notify(summary,test=False):
 def sample_rows(rows,per_search=None):
     return rows if per_search is None else rows[:per_search]
 
+class TimeBudgetReached(RuntimeError):pass
+
+def capture_page(target,rows,deadline):
+    merge_search_rows(target,rows)
+    if time.monotonic()>=deadline:raise TimeBudgetReached('run_time_budget_reached')
+
+def detail_priority(row,cache):
+    old=cache.get(row.get('Stepstone_ID')or job_id(row['Titel_url']))or{}
+    has_text=bool(old.get('has_fulltext'))
+    good=old.get('detail_quality')in {'fulltext','not_modified','cached_fresh'}
+    return (has_text and good,has_text,old.get('last_detail_check')or datetime.min.replace(tzinfo=timezone.utc))
+
 def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False):
     if pagination_pilot:max_details=3
     limited=bool(limit or max_details or sample_per_search)
@@ -191,18 +203,21 @@ def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagina
     if not conn.execute("select pg_try_advisory_lock(713015,1)").fetchone()[0]:raise RuntimeError('another_stepstone_run_is_active')
     conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',VERSION,fingerprint,Jsonb({'limited':limited})))
     all_rows={};query_summary=[];issues=[];browser=None
+    deadline=time.monotonic()+POLICY['maximum_run_seconds']
     try:
         # Cloud comparison: ordinary HTTP timed out; default Chromium failed on
         # its second navigation. HTTP/1.1 Chromium passed both in the same session.
         from browser_transport import BrowserSession
         browser=BrowserSession(http2=False)
         for spec in searches:
+            if time.monotonic()>=deadline:
+                issues.append('run_time_budget_reached');break
             key=digest(spec.name);history=store.history(key,fingerprint);chosen=None;errors=[];partial_rows={}
             for attempt in range(POLICY['search_attempts']):
                 try:
                     client=StepstoneClient(session=browser,delay_seconds=1,timeout_seconds=35,retries=2)
                     result=client.fetch_search(spec,now().date().isoformat(),max_pages=None if pagination_pilot else sample_pages if sample_per_search else 1 if max_details else None,
-                        on_page_rows=lambda rows:merge_search_rows(partial_rows,rows))
+                        on_page_rows=lambda rows:capture_page(partial_rows,rows,deadline))
                     errors=anomalous(len(result.rows),history)
                     if not result.inventory_complete:
                         ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if(max_details or sample_per_search)and not pagination_pilot else set()
@@ -210,38 +225,38 @@ def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagina
                     chosen=result
                     if not errors:break
                 except Exception as exc:
+                    if isinstance(exc,TimeBudgetReached):
+                        errors=['run_time_budget_reached'];issues.append('run_time_budget_reached');break
                     errors=[search_error_code(exc)]
                     print('SEARCH_DIAGNOSTIC',json.dumps({'search':spec.name,'attempt':attempt+1,'errors':errors}),flush=True)
-                    if browser is None and 'ReadTimeout'in errors[0]and attempt+1<POLICY['search_attempts']:
-                        from browser_transport import BrowserSession
-                        browser=BrowserSession()
-                        print('RECOVERY normal_browser_navigation',flush=True)
                 if attempt+1<POLICY['search_attempts']:time.sleep(10)
             count=len(chosen.rows)if chosen else len(partial_rows)
             if not history and count==0:errors.append('unexpected_initial_zero')
             healthy=not errors and chosen is not None and not limited
             conn.execute('insert into kr_portals.search_runs(run_id,search_key,search_name,fingerprint,distinct_count,healthy,diagnostics)values(%s,%s,%s,%s,%s,%s,%s)',(run_id,key,spec.name,fingerprint,count,healthy,Jsonb({'errors':errors})))
-            query_summary.append({'name':spec.name,'count':count,'healthy':healthy,'errors':errors,'sample_only':bool(sample_per_search),'pages':chosen.pages if chosen else None,'scope_complete':chosen.inventory_complete if chosen else False})
+            query_summary.append({'name':spec.name,'count':count,'healthy':healthy,'errors':errors,'sample_only':bool(sample_per_search),'pages':chosen.pages if chosen else None,'scope_complete':chosen.inventory_complete if chosen else False,'declared_total':chosen.declared_total if chosen else None,'offered_pages':chosen.offered_pages if chosen else None})
             if errors:issues.append('search_quality')
-            if chosen:merge_search_rows(all_rows,sample_rows(chosen.rows,sample_per_search))
-            else:merge_search_rows(all_rows,sample_rows(list(partial_rows.values()),sample_per_search))
+            if chosen:merge_search_rows(partial_rows,chosen.rows)
+            merge_search_rows(all_rows,sample_rows(list(partial_rows.values()),sample_per_search))
             print('SEARCH_RESULT',json.dumps(query_summary[-1],ensure_ascii=False),flush=True)
             store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows)})
         cache=store.cached();details=DetailClient(browser);quality={};processed=0
-        for row in all_rows.values():
+        for row in sorted(all_rows.values(),key=lambda r:detail_priority(r,cache)):
+            if time.monotonic()>=deadline:
+                issues.append('run_time_budget_reached');break
             if max_details is not None and processed>=max_details:break
             native=row['Stepstone_ID']or job_id(row['Titel_url']);old=cache.get(native)
-            fresh=old and old['has_fulltext']and old['last_detail_check']and old['last_detail_check']>now()-timedelta(days=POLICY['detail_refresh_days'])
+            fresh=old and old['has_fulltext']and old.get('detail_quality')in {'fulltext','not_modified','cached_fresh'}and old['last_detail_check']and old['last_detail_check']>now()-timedelta(days=POLICY['detail_refresh_days'])
             detail={'quality':'cached_fresh','text':None}if fresh else details.get(row,old)
             store.save_job(row,detail,run_id);processed+=1
             quality[detail['quality']]=quality.get(detail['quality'],0)+1
-            if processed%50==0:
+            if processed%10==0:
                 store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows),'processed':processed,'details':quality})
                 print('DETAIL_PROGRESS',processed,'/',len(all_rows),flush=True)
         good=sum(quality.get(k,0)for k in ('fulltext','not_modified','cached_fresh'))
         if processed==0 or good/max(processed,1)<POLICY['minimum_fulltext_fraction']:issues.append('fulltext_coverage')
         status='pilot'if limited else'warning'if issues else'complete'
-        summary={'distinct_jobs':len(all_rows),'processed':processed,'details':quality,'searches':query_summary,'issues':sorted(set(issues)),'limited':limited}
+        summary={'distinct_jobs':len(all_rows),'processed':processed,'details':quality,'searches':query_summary,'issues':sorted(set(issues)),'limited':limited,'unprocessed_searches':len(searches)-len(query_summary),'pending_details':max(0,len(all_rows)-processed),'time_budget_seconds':POLICY['maximum_run_seconds']}
         store.touch(run_id,status,summary)
         print('RUN_RESULT',json.dumps(summary,ensure_ascii=False),flush=True)
         if issues and not limited:notify(summary)

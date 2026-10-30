@@ -54,6 +54,8 @@ class SearchResult:
     duplicates: int
     inventory_complete: bool = False
     coverage_warnings: list[str] = field(default_factory=list)
+    declared_total: int | None = None
+    offered_pages: int | None = None
 
 
 def pagination_metadata(results: dict[str, Any]) -> tuple[int, int, int | None, dict]:
@@ -209,6 +211,8 @@ class StepstoneClient:
             duplicates=max(raw_rows - len(rows), 0),
             inventory_complete=not warnings,
             coverage_warnings=warnings,
+            declared_total=next(iter(observed_totals))if len(observed_totals)==1 else None,
+            offered_pages=maximum_pages,
         )
 
     def _get_state(self, url: str) -> dict[str, Any]:

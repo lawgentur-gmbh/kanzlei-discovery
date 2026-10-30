@@ -1,5 +1,5 @@
 import unittest,json
-from runtime import extract_detail,anomalous,portal_url,sample_rows,ROOT,search_error_code
+from runtime import extract_detail,anomalous,portal_url,sample_rows,ROOT,search_error_code,detail_priority,now,capture_page,TimeBudgetReached
 from kanzlei_discovery.stepstone import load_searches,search_fingerprint
 from browser_transport import timeout_milliseconds,BrowserSession
 URL='https://www.stepstone.de/stellenangebote--Test--12345678-inline.html'
@@ -47,6 +47,16 @@ class DetailTests(unittest.TestCase):
             self.assertNotIn('secret-url',str(exc))
         else:self.fail('network failure swallowed')
         self.assertTrue(page.closed)
+    def test_new_and_failed_descriptions_are_not_starved_by_old_cached_jobs(self):
+        rows=[{'Stepstone_ID':str(i),'Titel_url':URL}for i in range(1,5)]
+        cache={'1':{'has_fulltext':True,'detail_quality':'fulltext','last_detail_check':now()},'2':{'has_fulltext':True,'detail_quality':'network_error','last_detail_check':now()},'3':{'has_fulltext':False,'detail_quality':'missing_fulltext'}}
+        order=[r['Stepstone_ID']for r in sorted(rows,key=lambda r:detail_priority(r,cache))]
+        self.assertEqual(order[-2:],['2','1'])
+        self.assertEqual(set(order[:2]),{'3','4'})
+    def test_deadline_preserves_just_received_page(self):
+        captured={};row={'Stepstone_ID':'12345678','Titel_url':URL}
+        with self.assertRaises(TimeBudgetReached):capture_page(captured,[row],0)
+        self.assertEqual(list(captured),['12345678'])
     def test_survey_limits_each_search_before_global_dedupe(self):
         a=[{'id':i}for i in range(25)]
         self.assertEqual(len(sample_rows(a,2)),2)

@@ -6,7 +6,9 @@ kein Import der 170 zuvor zugeordneten Arbeitgeber-Originale.
 
 - Sonntags 05:00 UTC: 06:00 Uhr Berlin im Winter, 07:00 Uhr im Sommer.
 - GitHub Actions, unabhängig vom Benutzerrechner, höchstens ein aktiver Lauf.
-- Bestehende sieben Berufssuchen und ihre Filter; alle belegten Ergebnisseiten.
+- 30 geprüfte Beruf-/Branchensuchen und ihre Filter; alle belegten Ergebnisseiten.
+  Branchen-Suchen liefern auch Business Services; Suchtreffer sind keine garantierte
+  fachliche Zuordnung. Der Bestand bleibt privat und braucht Matching-Regeln.
 - Detailseiten: vollständige JobPosting-Beschreibung bzw. abgegrenzter Anzeigentext.
   Suchlisten-Snippets gelten nicht als Volltext. Fehlende Texte bleiben offen.
 - Datenbank: KanzleiRadar, ausschließlich privates Schema `kr_portals`.
@@ -17,6 +19,10 @@ kein Import der 170 zuvor zugeordneten Arbeitgeber-Originale.
   internen Ansicht `deduplicated_jobs` zusammengeführt; Portal-IDs bleiben belegt.
 - Keine Entfernung historischer Anzeigen. Ein fehlender Suchtreffer schließt keine Stelle.
   `last_seen` und Detail-Prüfergebnis zeigen Aktualität und Abrufgrenzen.
+- Vier Stunden Abrufbudget je Lauf, innerhalb des fünfstündigen Workflowlimits.
+  Bei Budgetende bleiben Ergebnisse erhalten und der Rest wird als Rückstand
+  gemeldet; keine Vollständigkeitszusage. Neue/fehlende Texte vor fehlerhaften
+  Aktualisierungen und vorhandenen Texten, vorhandene nach ältestem Prüfzeitpunkt.
 - Warnung: über 30 Prozent UND mindestens 20 Anzeigen Abweichung je Suche gegen
   den Median der letzten vier technisch erfolgreichen vergleichbaren Suchläufe;
   außerdem Filter-/Paginationfehler oder weniger als 90 Prozent bestätigte Volltexte.
@@ -32,7 +38,10 @@ kein zusätzlicher StepStone-Erfassungsweg. Produktiver Job Monitor unverändert
 Cloud-Aktivierung am 30.10.2026 nach ausdrücklicher Secret-Freigabe und erfolgreichem
 Datenbank-Pilot: drei Anzeigen mit vollständigem Text, drei Textblöcke, drei
 Zustandsversionen, unabhängig in der Datenbank bestätigt. Warnweg ebenfalls getestet.
-Bei HTTP-Lese-Timeouts wird einmal auf normale Chromium-Navigation zurückgefallen.
+Seit dem Cloudvergleich vom 30.10. nutzt der Lauf normale Chromium-Navigation
+mit HTTP/1.1 ab Beginn für Listen und Details. Im Vergleich lief requests in
+Timeouts; Standard-Chromium scheiterte nach der ersten Navigation. HTTP/1.1
+lieferte auf beiden Kontrollsuchen HTTP200 und jeweils 25 Treffer.
 Der erste planmäßige Vollumfangslauf steht noch aus; aus drei Pilotanzeigen folgt
 keine pauschale Vollständigkeitszusage für alle sieben Suchen.
 
