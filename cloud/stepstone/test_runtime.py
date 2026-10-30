@@ -21,4 +21,5 @@ class DetailTests(unittest.TestCase):
     def test_normal_noise(self):self.assertFalse(anomalous(105,[100,110]))
     def test_small_counts(self):self.assertFalse(anomalous(5,[10]))
     def test_first_run_no_fake_baseline(self):self.assertFalse(anomalous(50,[]))
+    def test_zero_always_alerts(self):self.assertTrue(anomalous(0,[4,5,4]))
 if __name__=='__main__':unittest.main()

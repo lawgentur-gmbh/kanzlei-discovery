@@ -109,6 +109,7 @@ class DetailClient:
 def anomalous(count,history):
     if not history:return []
     baseline=statistics.median(history)
+    if count==0 and baseline>0:return ['unexpected_zero_inventory']
     delta=abs(count-baseline)
     return [f'count={count}; baseline={baseline:g}']if delta>=POLICY['absolute_count_threshold']and delta/max(baseline,1)>POLICY['relative_count_threshold']else []
 
