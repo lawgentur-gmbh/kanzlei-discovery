@@ -14,7 +14,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from kanzlei_discovery.stepstone import StepstoneClient,load_searches,search_fingerprint,merge_search_rows,DEFAULT_HEADERS
 
-VERSION='stepstone-internal-1'
+VERSION='stepstone-internal-2'
 ROOT=Path(__file__).resolve().parents[2]
 POLICY=json.loads((Path(__file__).parent/'policy.json').read_text())
 
@@ -179,7 +179,7 @@ def notify(summary,test=False):
 def sample_rows(rows,per_search=None):
     return rows if per_search is None else rows[:per_search]
 
-def run(limit=None,max_details=None,sample_per_search=None):
+def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2):
     limited=bool(limit or max_details or sample_per_search)
     searches=load_searches(ROOT/('config/stepstone_searches_candidate.json'if sample_per_search else'config/stepstone_searches.json'))
     if limit:searches=searches[:limit]
@@ -190,12 +190,16 @@ def run(limit=None,max_details=None,sample_per_search=None):
     conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',VERSION,fingerprint,Jsonb({'limited':limited})))
     all_rows={};query_summary=[];issues=[];browser=None
     try:
+        # Cloud comparison: ordinary HTTP timed out; default Chromium failed on
+        # its second navigation. HTTP/1.1 Chromium passed both in the same session.
+        from browser_transport import BrowserSession
+        browser=BrowserSession(http2=False)
         for spec in searches:
             key=digest(spec.name);history=store.history(key,fingerprint);chosen=None;errors=[];partial_rows={}
             for attempt in range(POLICY['search_attempts']):
                 try:
                     client=StepstoneClient(session=browser,delay_seconds=1,timeout_seconds=35,retries=2)
-                    result=client.fetch_search(spec,now().date().isoformat(),max_pages=1 if max_details or sample_per_search else None,
+                    result=client.fetch_search(spec,now().date().isoformat(),max_pages=sample_pages if sample_per_search else 1 if max_details else None,
                         on_page_rows=lambda rows:merge_search_rows(partial_rows,rows))
                     errors=anomalous(len(result.rows),history)
                     if not result.inventory_complete:
@@ -215,7 +219,7 @@ def run(limit=None,max_details=None,sample_per_search=None):
             if not history and count==0:errors.append('unexpected_initial_zero')
             healthy=not errors and chosen is not None and not limited
             conn.execute('insert into kr_portals.search_runs(run_id,search_key,search_name,fingerprint,distinct_count,healthy,diagnostics)values(%s,%s,%s,%s,%s,%s,%s)',(run_id,key,spec.name,fingerprint,count,healthy,Jsonb({'errors':errors})))
-            query_summary.append({'name':spec.name,'count':count,'healthy':healthy,'errors':errors,'sample_only':bool(sample_per_search)})
+            query_summary.append({'name':spec.name,'count':count,'healthy':healthy,'errors':errors,'sample_only':bool(sample_per_search),'pages':chosen.pages if chosen else None,'scope_complete':chosen.inventory_complete if chosen else False})
             if errors:issues.append('search_quality')
             if chosen:merge_search_rows(all_rows,sample_rows(chosen.rows,sample_per_search))
             else:merge_search_rows(all_rows,sample_rows(list(partial_rows.values()),sample_per_search))
@@ -254,17 +258,21 @@ def run(limit=None,max_details=None,sample_per_search=None):
 def network_probe():
     """Small cloud preflight, no DB, stored text, reverse search or publication."""
     spec=load_searches(ROOT/'config/stepstone_searches.json')[0]
-    client=StepstoneClient(delay_seconds=1,timeout_seconds=25,retries=2)
-    result=client.fetch_search(spec,now().date().isoformat(),max_pages=1)
-    details=DetailClient();counts={}
-    for row in result.rows[:3]:
-        detail=details.get(row,None)
-        counts[detail['quality']]=counts.get(detail['quality'],0)+1
+    from browser_transport import BrowserSession
+    browser=BrowserSession(http2=False)
+    try:
+        client=StepstoneClient(session=browser,delay_seconds=1,timeout_seconds=25,retries=2)
+        result=client.fetch_search(spec,now().date().isoformat(),max_pages=1)
+        details=DetailClient(browser);counts={}
+        for row in result.rows[:3]:
+            detail=details.get(row,None)
+            counts[detail['quality']]=counts.get(detail['quality'],0)+1
+    finally:browser.close()
     print('PREFLIGHT',json.dumps({'sample_rows':len(result.rows),'details':counts,'database_changed':False}))
     return 0 if counts.get('fulltext')else 2
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--network-probe',action='store_true')
+    p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--sample-pages',type=int,default=2);p.add_argument('--network-probe',action='store_true')
     a=p.parse_args()
-    if any(x is not None and x<1 for x in (a.limit_searches,a.max_details,a.sample_per_search)):p.error('limits must be positive')
-    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search))
+    if any(x is not None and x<1 for x in (a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages)):p.error('limits must be positive')
+    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages))

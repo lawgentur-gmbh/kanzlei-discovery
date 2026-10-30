@@ -1,7 +1,7 @@
 import unittest,json
 from runtime import extract_detail,anomalous,portal_url,sample_rows,ROOT,search_error_code
 from kanzlei_discovery.stepstone import load_searches,search_fingerprint
-from browser_transport import timeout_milliseconds
+from browser_transport import timeout_milliseconds,BrowserSession
 URL='https://www.stepstone.de/stellenangebote--Test--12345678-inline.html'
 TEXT='Ihre Aufgaben Sie beraten in Rechtsfragen. Ihr Profil Sie sind Volljurist. Wir bieten gute Bedingungen. '*10
 class DetailTests(unittest.TestCase):
@@ -31,6 +31,22 @@ class DetailTests(unittest.TestCase):
         code=search_error_code(e)
         self.assertIn('ERR_HTTP2_PROTOCOL_ERROR',code)
         self.assertNotIn('secret',code)
+    def test_browser_preserves_http2_error_and_closes_failed_page(self):
+        class Error(Exception):pass
+        class Page:
+            closed=False
+            def goto(self,*a,**kw):raise Error('net::ERR_HTTP2_PROTOCOL_ERROR at secret-url')
+            def close(self):self.closed=True
+        page=Page()
+        class Context:
+            def new_page(self):return page
+        session=object.__new__(BrowserSession);session.context=Context()
+        try:session.get('https://www.stepstone.de/jobs/test')
+        except Exception as exc:
+            self.assertIn('ERR_HTTP2_PROTOCOL_ERROR',search_error_code(exc))
+            self.assertNotIn('secret-url',str(exc))
+        else:self.fail('network failure swallowed')
+        self.assertTrue(page.closed)
     def test_survey_limits_each_search_before_global_dedupe(self):
         a=[{'id':i}for i in range(25)]
         self.assertEqual(len(sample_rows(a,2)),2)
