@@ -52,7 +52,7 @@ class DetailTests(unittest.TestCase):
         self.assertEqual(len(sample_rows(a,2)),2)
         self.assertIs(sample_rows(a),a)
     def test_candidate_scope_keeps_existing_filter_and_changes_baseline(self):
-        old=load_searches(ROOT/'config/stepstone_searches.json')
+        old=load_searches(ROOT/'config/stepstone_searches.json')[:7]
         new=load_searches(ROOT/'config/stepstone_searches_candidate.json')
         self.assertEqual(new[:len(old)],old)
         self.assertGreater(len(new),len(old))

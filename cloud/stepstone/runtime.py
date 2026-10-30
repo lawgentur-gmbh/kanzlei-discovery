@@ -179,9 +179,11 @@ def notify(summary,test=False):
 def sample_rows(rows,per_search=None):
     return rows if per_search is None else rows[:per_search]
 
-def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2):
+def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False):
+    if pagination_pilot:max_details=3
     limited=bool(limit or max_details or sample_per_search)
     searches=load_searches(ROOT/('config/stepstone_searches_candidate.json'if sample_per_search else'config/stepstone_searches.json'))
+    if pagination_pilot:searches=[next(s for s in searches if s.name=='Notarfachangestellter')]
     if limit:searches=searches[:limit]
     fingerprint=search_fingerprint(searches);run_id=str(uuid.uuid4())
     conn=psycopg.connect(os.environ['STEPSTONE_DATABASE_URL'],autocommit=True,connect_timeout=20,application_name='stepstone-private-weekly',sslmode='verify-full',sslrootcert=str(Path(__file__).parent/'supabase-ca.crt'))
@@ -199,11 +201,11 @@ def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2):
             for attempt in range(POLICY['search_attempts']):
                 try:
                     client=StepstoneClient(session=browser,delay_seconds=1,timeout_seconds=35,retries=2)
-                    result=client.fetch_search(spec,now().date().isoformat(),max_pages=sample_pages if sample_per_search else 1 if max_details else None,
+                    result=client.fetch_search(spec,now().date().isoformat(),max_pages=None if pagination_pilot else sample_pages if sample_per_search else 1 if max_details else None,
                         on_page_rows=lambda rows:merge_search_rows(partial_rows,rows))
                     errors=anomalous(len(result.rows),history)
                     if not result.inventory_complete:
-                        ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if max_details or sample_per_search else set()
+                        ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if(max_details or sample_per_search)and not pagination_pilot else set()
                         errors+=[x for x in result.coverage_warnings if x not in ignored]
                     chosen=result
                     if not errors:break
@@ -272,7 +274,8 @@ def network_probe():
     return 0 if counts.get('fulltext')else 2
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--sample-pages',type=int,default=2);p.add_argument('--network-probe',action='store_true')
+    p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--sample-pages',type=int,default=2);p.add_argument('--pagination-pilot',action='store_true');p.add_argument('--network-probe',action='store_true')
     a=p.parse_args()
     if any(x is not None and x<1 for x in (a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages)):p.error('limits must be positive')
-    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages))
+    if a.pagination_pilot and a.sample_per_search:p.error('pagination pilot and survey are separate modes')
+    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages,a.pagination_pilot))
