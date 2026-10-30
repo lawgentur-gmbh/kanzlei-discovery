@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch,Mock
 import runtime as r
 import incremental_runtime as inc
-from browser_transport import BrowserSession,TransportUnavailable
+from browser_transport import BrowserSession,TransportUnavailable,canonical_search_url
 
 def row(native):
     return {'Stepstone_ID':native,'Titel_url':f'https://www.stepstone.de/stellenangebote--Test--{native}-inline.html','Job_Titel':'Rechtsanwalt','Name_des_Unternehmens':'Testkanzlei','Standort':'Berlin','Erscheinen':'heute','Home_möglich':''}
@@ -84,6 +84,12 @@ class IncrementalTests(unittest.TestCase):
             self.assertEqual(inc.run(r),2);connect.assert_not_called()
 
 class RecoveryTests(unittest.TestCase):
+    def test_canonical_search_preserves_functional_filters_and_page(self):
+        from urllib.parse import urlsplit,parse_qs
+        url='https://www.stepstone.de/jobs/assistenz?action=facet_selected%3BherdwickDisciplines%3BLegal&hdi=Legal&searchOrigin=Resultlist_top-search&q=Legal+Assistenz&page=2&l=Berlin'
+        q=parse_qs(urlsplit(canonical_search_url(url)).query)
+        self.assertEqual(q,{'hdi':['Legal'],'q':['Legal Assistenz'],'page':['2'],'l':['Berlin']})
+        self.assertIn('action=other',canonical_search_url('https://www.stepstone.de/jobs/legal?action=other'))
     def test_scope_boundary_releases_old_browser_but_retains_session(self):
         state={'cookies':[],'origins':[]};events=[]
         session=object.__new__(BrowserSession);session.network_failures=0;session.scope_restarts=0

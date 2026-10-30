@@ -3,7 +3,8 @@ from browser_transport import BrowserSession
 
 GOOD={'fulltext','cached_fresh','not_modified'}
 
-def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False,repair=False,resume_only=False,browser_engine='chromium'):
+def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False,repair=False,resume_only=False,browser_engine=None):
+    browser_engine=browser_engine or r.POLICY.get('browser_engine','chromium')
     if repair and sample_per_search is None:sample_per_search=2
     if resume_only:sample_per_search=None
     if pagination_pilot:max_details=3
@@ -100,8 +101,8 @@ def run(r,limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagi
             if any(e.startswith('search_')or e=='unverified_empty_inventory'for e in errors):
                 issues.append('search_incomplete');break
             if max_details and len(done)>=max_details:break
-            r.time.sleep(r.POLICY['search_delay_seconds'])
-            if len(queries)<len(specs):browser.next_search()
+            if len(queries)<len(specs):
+                r.time.sleep(r.POLICY['search_delay_seconds']);browser.next_search()
         good=sum(v for k,v in quality.items()if k in GOOD)
         if not done or good/max(len(done),1)<r.POLICY['minimum_fulltext_fraction']:issues.append('fulltext_coverage')
         summary=snapshot();summary['pending_details_observed']=max(0,len(seen)-len(done))

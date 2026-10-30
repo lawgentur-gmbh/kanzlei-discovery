@@ -6,10 +6,18 @@ Only public StepStone HTTPS pages, images/fonts/media not downloaded.
 import json,re,time
 from dataclasses import dataclass
 from kanzlei_discovery.stepstone import STATE_MARKER
-from urllib.parse import urlsplit,parse_qs
+from urllib.parse import urlsplit,parse_qs,parse_qsl,urlencode,urlunsplit
 import requests
 
 class TransportUnavailable(requests.ConnectionError):pass
+
+def canonical_search_url(url):
+    p=urlsplit(url)
+    if p.path.startswith('/jobs/'):
+        pairs=parse_qsl(p.query,keep_blank_values=True);params=parse_qs(p.query)
+        pairs=[(k,v)for k,v in pairs if k!='searchOrigin'and not(k=='action'and v=='facet_selected;herdwickDisciplines;Legal'and params.get('hdi')==['Legal'])]
+        return urlunsplit((p.scheme,p.netloc,p.path,urlencode(pairs),p.fragment))
+    return url
 
 @dataclass
 class PageResponse:
@@ -50,8 +58,9 @@ class BrowserSession:
         self.context.close();self.browser.close();self._open(storage)
         self.scope_restarts+=1
     def get(self,url,timeout=35,**kwargs):
+        url=canonical_search_url(url)
         p=urlsplit(url)
-        if p.scheme!='https'or p.hostname!='www.stepstone.de':raise RuntimeError('browser_origin_rejected')
+        if p.scheme!='https'or p.hostname!='www.stepstone.de'or p.username or p.password:raise RuntimeError('browser_origin_rejected')
         if getattr(self,'network_failures',0)>=2:raise TransportUnavailable('consecutive_network_failures')
         page_number=parse_qs(p.query).get('page',['1'])[0]
         diag={'kind':'listing'if p.path.startswith('/jobs/')else'detail','page':int(page_number)if page_number.isdigit()and len(page_number)<7 else None,'stage':'navigation','main_status':None}
