@@ -7,7 +7,7 @@ on:
       mode:
         description: 'probe: no DB; pilot: limited DB test; full: weekly acquisition'
         type: choice
-        options: [probe, pilot, checkpoint_test, repair_small, repair_requests, repair_firefox, repair_resume, repair_resume_firefox, repair_endurance, repair_pagination_firefox, survey, pagination_pilot, transport_probe, transport_http1, alert_test, full]
+        options: [probe, pilot, environment_probe, checkpoint_test, repair_small, repair_requests, repair_firefox, repair_resume, repair_resume_firefox, repair_endurance, repair_pagination_firefox, survey, pagination_pilot, transport_probe, transport_http1, alert_test, full]
         default: probe
       runner_os:
         description: 'Standard cloud environment for controlled comparison'
@@ -42,7 +42,7 @@ jobs:
           cache-dependency-path: cloud/stepstone/requirements.txt
       - run: pip install -r cloud/stepstone/requirements.txt
       - name: Install browser for bounded timeout recovery
-        if: inputs.mode != 'repair_requests'
+        if: inputs.mode != 'repair_requests' && inputs.mode != 'environment_probe'
         run: python -m playwright install --with-deps chromium firefox
       - name: Check contracts
         run: python -m unittest discover -s cloud/stepstone -p 'test_*.py'
@@ -54,6 +54,8 @@ jobs:
             python cloud/stepstone/runtime.py --network-probe
           elif [ "${{ inputs.mode }}" = "pilot" ]; then
             python cloud/stepstone/runtime.py --limit-searches 1 --max-details 3
+          elif [ "${{ inputs.mode }}" = "environment_probe" ]; then
+            python cloud/stepstone/environment_probe.py
           elif [ "${{ inputs.mode }}" = "checkpoint_test" ]; then
             python cloud/stepstone/checkpoint_probe.py
           elif [ "${{ inputs.mode }}" = "repair_small" ]; then
