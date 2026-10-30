@@ -1,0 +1,11 @@
+{
+  "version": "stepstone-internal-1",
+  "schedule_utc": "0 5 * * 0",
+  "relative_count_threshold": 0.30,
+  "absolute_count_threshold": 20,
+  "minimum_fulltext_fraction": 0.90,
+  "detail_refresh_days": 7,
+  "search_attempts": 2,
+  "http_delay_seconds": 1.0,
+  "description": "Internal portal archive only. No reverse search, employer crawling, publication, absence closures, or deletion."
+}

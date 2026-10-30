@@ -9,7 +9,8 @@
   },
   {
     "name": "Assistenz Recht",
-    "url": "https://www.stepstone.de/jobs/assistenz?action=facet_selected%3bdisciplines%3bRecht&searchOrigin=Resultlist_top-search&di=Recht"
+    "url": "https://www.stepstone.de/jobs/assistenz?action=facet_selected%3BherdwickDisciplines%3BLegal&searchOrigin=Resultlist_top-search&hdi=Legal",
+    "required_filters": {"herdwickDisciplines": "Legal"}
   },
   {
     "name": "Rechtsanwalt/Rechtsanwältin",

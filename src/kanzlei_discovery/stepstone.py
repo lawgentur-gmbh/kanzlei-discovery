@@ -5,7 +5,7 @@ import hashlib
 import json
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -43,6 +43,7 @@ DEFAULT_HEADERS = {
 class SearchSpec:
     name: str
     url: str
+    required_filters: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -51,6 +52,29 @@ class SearchResult:
     raw_rows: int
     pages: int
     duplicates: int
+    inventory_complete: bool = False
+    coverage_warnings: list[str] = field(default_factory=list)
+
+
+def pagination_metadata(results: dict[str, Any]) -> tuple[int, int, int | None, dict]:
+    """Read both published layouts; missing metadata is never a one-page list."""
+    legacy = results.get("pagination") or {}
+    unified = results.get("unifiedPagination") or {}
+    complete = [p for p in (legacy, unified) if isinstance(p, dict)
+                and p.get("page") is not None and p.get("pageCount") is not None]
+    if not complete:
+        raise RuntimeError("Stepstone pagination metadata missing; completeness unknown")
+    pairs = {(int(p["page"]), int(p["pageCount"])) for p in complete}
+    if len(pairs) != 1:
+        raise RuntimeError("Stepstone pagination fields conflict")
+    page, count = pairs.pop()
+    total = legacy.get("totalCount", (results.get("meta") or {}).get("total"))
+    total = int(total) if total is not None else None
+    if page == 1 and count == 0 and total == 0:
+        count = 1
+    if page < 1 or count < page or count > 10000 or total is not None and total < 0:
+        raise RuntimeError("Stepstone pagination range invalid")
+    return page, count, total, unified or legacy
 
 
 class StepstoneClient:
@@ -81,6 +105,13 @@ class StepstoneClient:
         next_url = search.url
         expected_pages: int | None = None
         seen_page_urls: set[str] = set()
+        observed_counts: set[int] = set()
+        observed_totals: set[int] = set()
+        page_id_sets: set[tuple[str, ...]] = set()
+        warnings: list[str] = []
+        visited_pages = 0
+        invalid_items = 0
+        maximum_pages = 0
 
         while next_url:
             if next_url in seen_page_urls:
@@ -88,57 +119,93 @@ class StepstoneClient:
             seen_page_urls.add(next_url)
             state = self._get_state(next_url)
             results = state.get("searchResults") or {}
-            pagination = results.get("pagination") or {}
+            active_filters = (results.get("activeFilters") or {}).get("items") or []
+            for filter_type, filter_id in search.required_filters:
+                if not any(f.get("type") == filter_type and str(f.get("id")) == filter_id for f in active_filters if isinstance(f, dict)):
+                    raise RuntimeError(f"{search.name}: required filter {filter_type}={filter_id} not active on page {page_number}")
             items = results.get("items") or []
             if not isinstance(items, list):
                 raise RuntimeError(f"{search.name}: Stepstone returned an invalid item list")
 
-            current_page = int(pagination.get("page") or page_number)
-            expected_pages = int(pagination.get("pageCount") or current_page)
-            total_count = int(pagination.get("totalCount") or 0)
-            if total_count > 0 and not items:
+            current_page, expected_pages, total_count, pagination = pagination_metadata(results)
+            if current_page != page_number:
+                raise RuntimeError(f"{search.name}: requested page {page_number}, received {current_page}")
+            observed_counts.add(expected_pages)
+            maximum_pages = max(maximum_pages, expected_pages)
+            if total_count is not None:
+                observed_totals.add(total_count)
+            if not items and (total_count != 0 or expected_pages > 1):
                 raise RuntimeError(
                     f"{search.name}: Stepstone returned no items on page {current_page}"
                 )
+            visited_pages += 1
             raw_rows += len(items)
+            page_ids = []
             for item in items:
                 if not isinstance(item, dict):
+                    invalid_items += 1
                     continue
                 row = item_to_export_row(item, search.name, scrape_date)
                 if not row:
+                    invalid_items += 1
                     continue
                 identity = item_identity(item, row)
+                page_ids.append(identity)
                 existing = rows_by_id.get(identity)
                 if existing:
                     add_search_name(existing, search.name)
                 else:
                     rows_by_id[identity] = row
+            signature = tuple(sorted(page_ids))
+            if signature and signature in page_id_sets:
+                raise RuntimeError(f"{search.name}: repeated result page under a different URL")
+            page_id_sets.add(signature)
 
             print(
                 f"STEPSTONE_PAGE query={safe_console(search.name)} "
                 f"page={current_page}/{expected_pages} items={len(items)}"
             )
             if max_pages and current_page >= max_pages:
+                if current_page < maximum_pages:
+                    warnings.append("explicit_page_limit")
                 break
-            if current_page >= expected_pages:
+            if current_page >= maximum_pages:
                 break
 
-            links = (results.get("unifiedPagination") or {}).get("links") or {}
-            next_url = urljoin(BASE_URL, str(links.get("next") or "").strip())
-            if not next_url:
+            links = pagination.get("links") or {}
+            next_link = str(links.get("next") or "").strip()
+            # Search totals can shrink while pages are being read. Follow the
+            # highest observed range using the site's own published template.
+            if not next_link and len(observed_counts) > 1 and current_page < maximum_pages:
+                template = str(pagination.get("template") or "")
+                if "{page}" in template:
+                    next_link = template.replace("{page}", str(current_page + 1))
+            if not next_link:
                 raise RuntimeError(
-                    f"{search.name}: missing next-page link at {current_page}/{expected_pages}"
+                    f"{search.name}: missing next-page link at {current_page}/{maximum_pages}"
                 )
+            next_url = urljoin(BASE_URL, next_link)
+            parsed = urlsplit(next_url)
+            if parsed.scheme != "https" or parsed.hostname != "www.stepstone.de" or not parsed.path.startswith("/jobs/") or parsed.username or parsed.password:
+                raise RuntimeError(f"{search.name}: invalid next-page origin/path")
             page_number = current_page + 1
             if self.delay_seconds:
                 time.sleep(self.delay_seconds)
 
         rows = list(rows_by_id.values())
+        if len(observed_counts) > 1 or len(observed_totals) > 1:
+            warnings.append("inventory_changed_during_pagination")
+        if invalid_items:
+            warnings.append("invalid_result_items")
+        if len(observed_totals) == 1 and len(rows) != next(iter(observed_totals)):
+            warnings.append("unique_inventory_differs_from_declared_total")
         return SearchResult(
             rows=rows,
             raw_rows=raw_rows,
-            pages=expected_pages or 0,
+            pages=visited_pages,
             duplicates=max(raw_rows - len(rows), 0),
+            inventory_complete=not warnings,
+            coverage_warnings=warnings,
         )
 
     def _get_state(self, url: str) -> dict[str, Any]:
@@ -176,7 +243,10 @@ def load_searches(path: Path) -> list[SearchSpec]:
         url = str(item.get("url") or "").strip()
         if not name or not url.startswith("https://www.stepstone.de/jobs/"):
             raise ValueError(f"{path}: invalid Stepstone search entry {index}")
-        searches.append(SearchSpec(name=name, url=url))
+        filters = item.get("required_filters") or {}
+        if not isinstance(filters, dict) or any(not isinstance(k, str) or not isinstance(v, str) or not k or not v for k, v in filters.items()):
+            raise ValueError(f"{path}: invalid required filters at entry {index}")
+        searches.append(SearchSpec(name=name, url=url, required_filters=tuple(sorted(filters.items()))))
     if not searches:
         raise ValueError(f"{path}: no Stepstone searches configured")
     return searches
@@ -206,7 +276,9 @@ def item_to_export_row(
     title = clean(item.get("title"))
     company = clean(item.get("companyName"))
     link = canonical_job_url(clean(item.get("url")))
-    if not title or not company or not link:
+    # A missing employer remains a research candidate (title + city search),
+    # never a reason to silently lose a real source posting or invent a name.
+    if not title or not link:
         return None
     return {
         "Job_Titel": title,
@@ -248,7 +320,7 @@ def add_search_name(row: dict[str, str], search_name: str) -> None:
 
 
 def search_fingerprint(searches: Iterable[SearchSpec]) -> str:
-    payload = [{"name": item.name, "url": item.url} for item in searches]
+    payload = [{"name": item.name, "url": item.url, "required_filters": item.required_filters} for item in searches]
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -264,6 +336,7 @@ def load_resumable_checkpoint(
         return 0, OrderedDict(), empty_stats()
     if (
         payload.get("date") != scrape_date
+        or payload.get("pagination_version") != 2
         or payload.get("search_fingerprint") != fingerprint
         or payload.get("completed")
     ):
@@ -292,6 +365,7 @@ def save_checkpoint(
     completed: bool,
 ) -> None:
     payload: dict[str, Any] = {
+        "pagination_version": 2,
         "date": scrape_date,
         "search_fingerprint": fingerprint,
         "next_query_index": next_query_index,
@@ -343,7 +417,7 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 def empty_stats() -> dict[str, int]:
-    return {"queries": 0, "pages": 0, "raw_rows": 0, "duplicates": 0}
+    return {"queries": 0, "pages": 0, "raw_rows": 0, "duplicates": 0, "partial_queries": 0}
 
 
 def clean(value: Any) -> str:
