@@ -1,0 +1,125 @@
+[
+  {
+    "name": "Rechtsanwaltsfachangestellter",
+    "url": "https://www.stepstone.de/jobs/rechtsanwaltsfachangestellter?searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Notarfachangestellter",
+    "url": "https://www.stepstone.de/jobs/notarfachangestellter?searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Assistenz Recht",
+    "url": "https://www.stepstone.de/jobs/assistenz?action=facet_selected%3BherdwickDisciplines%3BLegal&searchOrigin=Resultlist_top-search&hdi=Legal",
+    "required_filters": {
+      "herdwickDisciplines": "Legal"
+    }
+  },
+  {
+    "name": "Rechtsanwalt/Rechtsanwältin",
+    "url": "https://www.stepstone.de/jobs/rechtsanwalt-anw%c3%a4ltin?searchOrigin=Resultlist_top-search&q=Rechtsanwalt%2Fanw%C3%A4ltin"
+  },
+  {
+    "name": "Legal Counsel",
+    "url": "https://www.stepstone.de/jobs/legal-counsel?searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Unternehmensjurist/in",
+    "url": "https://www.stepstone.de/jobs/unternehmensjurist-in?searchOrigin=Resultlist_top-search&q=Unternehmensjurist%2Fin"
+  },
+  {
+    "name": "Syndikusrechtsanwalt",
+    "url": "https://www.stepstone.de/jobs/syndikusrechtsanwalt?searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Rechtsfachwirt",
+    "url": "https://www.stepstone.de/jobs/rechtsfachwirt?q=rechtsfachwirt&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Notarfachwirt",
+    "url": "https://www.stepstone.de/jobs/notarfachwirt?q=notarfachwirt&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Patentanwaltsfachangestellter",
+    "url": "https://www.stepstone.de/jobs/patentanwaltsfachangestellter?q=patentanwaltsfachangestellter&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Patentanwalt",
+    "url": "https://www.stepstone.de/jobs/patentanwalt?q=patentanwalt&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Volljurist",
+    "url": "https://www.stepstone.de/jobs/volljurist?q=volljurist&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Wirtschaftsjurist",
+    "url": "https://www.stepstone.de/jobs/wirtschaftsjurist?q=wirtschaftsjurist&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Rechtsreferendar",
+    "url": "https://www.stepstone.de/jobs/rechtsreferendar?q=rechtsreferendar&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Rechtspfleger",
+    "url": "https://www.stepstone.de/jobs/rechtspfleger?q=rechtspfleger&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Steuerberater",
+    "url": "https://www.stepstone.de/jobs/steuerberater?q=steuerberater&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Steuerfachangestellter",
+    "url": "https://www.stepstone.de/jobs/steuerfachangestellter?q=steuerfachangestellter&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Steuerfachwirt",
+    "url": "https://www.stepstone.de/jobs/steuerfachwirt?q=steuerfachwirt&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Steuerassistent",
+    "url": "https://www.stepstone.de/jobs/steuerassistent?q=steuerassistent&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Steuerfachassistent",
+    "url": "https://www.stepstone.de/jobs/steuerfachassistent?q=steuerfachassistent&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Steuerberatung",
+    "url": "https://www.stepstone.de/jobs/steuerberatung?q=steuerberatung&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Kanzlei alle Berufsbereiche",
+    "url": "https://www.stepstone.de/jobs/kanzlei?q=kanzlei&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Wirtschaftskanzlei alle Berufsbereiche",
+    "url": "https://www.stepstone.de/jobs/wirtschaftskanzlei?q=wirtschaftskanzlei&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Notariat alle Berufsbereiche",
+    "url": "https://www.stepstone.de/jobs/notariat?q=notariat&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Wirtschaftsprüfung",
+    "url": "https://www.stepstone.de/jobs/wirtschaftspr%C3%BCfung?q=wirtschaftspr%C3%BCfung&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Legal Tech",
+    "url": "https://www.stepstone.de/jobs/legal-tech?q=legal%20tech&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Datenschutzjurist",
+    "url": "https://www.stepstone.de/jobs/datenschutzjurist?q=datenschutzjurist&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Compliance Jurist",
+    "url": "https://www.stepstone.de/jobs/compliance-jurist?q=compliance%20jurist&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Lohnbuchhaltung Steuerberatung",
+    "url": "https://www.stepstone.de/jobs/lohnbuchhaltung-steuerberatung?q=lohnbuchhaltung%20steuerberatung&searchOrigin=Resultlist_top-search"
+  },
+  {
+    "name": "Bilanzbuchhaltung Steuerberatung",
+    "url": "https://www.stepstone.de/jobs/bilanzbuchhaltung-steuerberatung?q=bilanzbuchhaltung%20steuerberatung&searchOrigin=Resultlist_top-search"
+  }
+]

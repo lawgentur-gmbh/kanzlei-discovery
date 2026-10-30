@@ -174,14 +174,18 @@ def notify(summary,test=False):
     response.raise_for_status()
     print('ALERT_CREATED',response.json()['html_url'])
 
-def run(limit=None,max_details=None):
-    searches=load_searches(ROOT/'config/stepstone_searches.json')
+def sample_rows(rows,per_search=None):
+    return rows if per_search is None else rows[:per_search]
+
+def run(limit=None,max_details=None,sample_per_search=None):
+    limited=bool(limit or max_details or sample_per_search)
+    searches=load_searches(ROOT/('config/stepstone_searches_candidate.json'if sample_per_search else'config/stepstone_searches.json'))
     if limit:searches=searches[:limit]
     fingerprint=search_fingerprint(searches);run_id=str(uuid.uuid4())
     conn=psycopg.connect(os.environ['STEPSTONE_DATABASE_URL'],autocommit=True,connect_timeout=20,application_name='stepstone-private-weekly',sslmode='verify-full',sslrootcert=str(Path(__file__).parent/'supabase-ca.crt'))
     store=Store(conn)
     if not conn.execute("select pg_try_advisory_lock(713015,1)").fetchone()[0]:raise RuntimeError('another_stepstone_run_is_active')
-    conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',VERSION,fingerprint,Jsonb({'limited':bool(limit or max_details)})))
+    conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',VERSION,fingerprint,Jsonb({'limited':limited})))
     all_rows={};query_summary=[];issues=[];browser=None
     try:
         for spec in searches:
@@ -189,11 +193,11 @@ def run(limit=None,max_details=None):
             for attempt in range(POLICY['search_attempts']):
                 try:
                     client=StepstoneClient(session=browser,delay_seconds=1,timeout_seconds=35,retries=2)
-                    result=client.fetch_search(spec,now().date().isoformat(),max_pages=1 if max_details else None,
+                    result=client.fetch_search(spec,now().date().isoformat(),max_pages=1 if max_details or sample_per_search else None,
                         on_page_rows=lambda rows:merge_search_rows(partial_rows,rows))
                     errors=anomalous(len(result.rows),history)
                     if not result.inventory_complete:
-                        ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if max_details else set()
+                        ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if max_details or sample_per_search else set()
                         errors+=[x for x in result.coverage_warnings if x not in ignored]
                     chosen=result
                     if not errors:break
@@ -207,12 +211,13 @@ def run(limit=None,max_details=None):
                 if attempt+1<POLICY['search_attempts']:time.sleep(10)
             count=len(chosen.rows)if chosen else len(partial_rows)
             if not history and count==0:errors.append('unexpected_initial_zero')
-            healthy=not errors and chosen is not None and not max_details
+            healthy=not errors and chosen is not None and not limited
             conn.execute('insert into kr_portals.search_runs(run_id,search_key,search_name,fingerprint,distinct_count,healthy,diagnostics)values(%s,%s,%s,%s,%s,%s,%s)',(run_id,key,spec.name,fingerprint,count,healthy,Jsonb({'errors':errors})))
-            query_summary.append({'name':spec.name,'count':count,'healthy':healthy,'errors':errors})
+            query_summary.append({'name':spec.name,'count':count,'healthy':healthy,'errors':errors,'sample_only':bool(sample_per_search)})
             if errors:issues.append('search_quality')
-            if chosen:merge_search_rows(all_rows,chosen.rows)
-            else:merge_search_rows(all_rows,partial_rows.values())
+            if chosen:merge_search_rows(all_rows,sample_rows(chosen.rows,sample_per_search))
+            else:merge_search_rows(all_rows,sample_rows(list(partial_rows.values()),sample_per_search))
+            print('SEARCH_RESULT',json.dumps(query_summary[-1],ensure_ascii=False),flush=True)
             store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows)})
         cache=store.cached();details=DetailClient(browser);quality={};processed=0
         for row in all_rows.values():
@@ -227,7 +232,6 @@ def run(limit=None,max_details=None):
                 print('DETAIL_PROGRESS',processed,'/',len(all_rows),flush=True)
         good=sum(quality.get(k,0)for k in ('fulltext','not_modified','cached_fresh'))
         if processed==0 or good/max(processed,1)<POLICY['minimum_fulltext_fraction']:issues.append('fulltext_coverage')
-        limited=bool(limit or max_details)
         status='pilot'if limited else'warning'if issues else'complete'
         summary={'distinct_jobs':len(all_rows),'processed':processed,'details':quality,'searches':query_summary,'issues':sorted(set(issues)),'limited':limited}
         store.touch(run_id,status,summary)
@@ -239,7 +243,7 @@ def run(limit=None,max_details=None):
         summary={'issues':['runtime_'+type(exc).__name__]}
         try:store.touch(run_id,'failed',summary)
         finally:
-            if not(limit or max_details):notify(summary)
+            if not limited:notify(summary)
         raise RuntimeError(type(exc).__name__)from None
     finally:
         if browser:browser.close()
@@ -258,5 +262,7 @@ def network_probe():
     return 0 if counts.get('fulltext')else 2
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--network-probe',action='store_true')
-    a=p.parse_args();sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details))
+    p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--network-probe',action='store_true')
+    a=p.parse_args()
+    if any(x is not None and x<1 for x in (a.limit_searches,a.max_details,a.sample_per_search)):p.error('limits must be positive')
+    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search))

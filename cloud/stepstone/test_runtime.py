@@ -1,5 +1,6 @@
 import unittest,json
-from runtime import extract_detail,anomalous,portal_url
+from runtime import extract_detail,anomalous,portal_url,sample_rows,ROOT
+from kanzlei_discovery.stepstone import load_searches,search_fingerprint
 from browser_transport import timeout_milliseconds
 URL='https://www.stepstone.de/stellenangebote--Test--12345678-inline.html'
 TEXT='Ihre Aufgaben Sie beraten in Rechtsfragen. Ihr Profil Sie sind Volljurist. Wir bieten gute Bedingungen. '*10
@@ -25,4 +26,15 @@ class DetailTests(unittest.TestCase):
     def test_zero_always_alerts(self):self.assertTrue(anomalous(0,[4,5,4]))
     def test_browser_read_timeout_tuple(self):self.assertEqual(timeout_milliseconds((10,30)),30000)
     def test_browser_search_timeout(self):self.assertEqual(timeout_milliseconds(35),35000)
+    def test_survey_limits_each_search_before_global_dedupe(self):
+        a=[{'id':i}for i in range(25)]
+        self.assertEqual(len(sample_rows(a,2)),2)
+        self.assertIs(sample_rows(a),a)
+    def test_candidate_scope_keeps_existing_filter_and_changes_baseline(self):
+        old=load_searches(ROOT/'config/stepstone_searches.json')
+        new=load_searches(ROOT/'config/stepstone_searches_candidate.json')
+        self.assertEqual(new[:len(old)],old)
+        self.assertGreater(len(new),len(old))
+        self.assertEqual(len({s.name for s in new}),len(new))
+        self.assertNotEqual(search_fingerprint(old),search_fingerprint(new))
 if __name__=='__main__':unittest.main()
