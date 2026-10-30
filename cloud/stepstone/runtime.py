@@ -14,7 +14,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from kanzlei_discovery.stepstone import StepstoneClient,load_searches,search_fingerprint,merge_search_rows,DEFAULT_HEADERS
 
-VERSION='stepstone-internal-2'
+VERSION='stepstone-internal-3'
 ROOT=Path(__file__).resolve().parents[2]
 POLICY=json.loads((Path(__file__).parent/'policy.json').read_text())
 
@@ -124,6 +124,35 @@ def search_error_code(exc):
 
 class Store:
     def __init__(self,conn):self.conn=conn
+    def checkpoint_page(self,rows,run_id,key,name,fingerprint,page_responses):
+        payload=[]
+        fields=('Job_Titel','Titel_url','Name_des_Unternehmens','Standort','Erscheinen','Home_möglich','Stepstone_ID','Search_Query')
+        for row in rows:
+            native=row.get('Stepstone_ID')or job_id(row.get('Titel_url',''))
+            if not native or not portal_url(row.get('Titel_url',''))or job_id(row['Titel_url'])!=native:
+                raise PersistenceError('candidate_identity_rejected')
+            payload.append({'external_id':native,'source_url':row['Titel_url'],'row_data':{k:row.get(k,'')for k in fields}})
+        try:
+            with self.conn.transaction():
+                if payload:
+                    self.conn.execute('''insert into kr_portals.stepstone_candidates(external_id,source_url,row_data,search_keys,last_run_id)
+                      select x.external_id,x.source_url,x.row_data,array[%s]::text[],%s::uuid
+                      from jsonb_to_recordset(%s::jsonb) as x(external_id text,source_url text,row_data jsonb)
+                      on conflict(external_id)do update set source_url=excluded.source_url,row_data=excluded.row_data,last_seen=now(),last_run_id=excluded.last_run_id,
+                        search_keys=array(select distinct unnest(kr_portals.stepstone_candidates.search_keys||excluded.search_keys)order by 1)''',(key,run_id,Jsonb(payload)))
+                count=self.conn.execute('select count(*)from kr_portals.stepstone_candidates where last_run_id=%s and %s=any(search_keys)',(run_id,key)).fetchone()[0]
+                self.search_checkpoint(run_id,key,name,fingerprint,count,False,{'phase':'listing','page_responses':page_responses,'persisted_ids':count})
+        except Exception as exc:raise PersistenceError(type(exc).__name__)from None
+        return count
+    def search_checkpoint(self,run_id,key,name,fingerprint,count,healthy,diagnostics):
+        self.conn.execute('''insert into kr_portals.search_runs(run_id,search_key,search_name,fingerprint,distinct_count,healthy,diagnostics)
+          values(%s,%s,%s,%s,%s,%s,%s)on conflict(run_id,search_key)do update set distinct_count=excluded.distinct_count,healthy=excluded.healthy,diagnostics=excluded.diagnostics,finished_at=now()''',
+          (run_id,key,name,fingerprint,count,healthy,Jsonb(diagnostics)))
+    def queued(self,key,run_id,resume=False):
+        rows=self.conn.execute('''select row_data from kr_portals.stepstone_candidates
+          where %s=any(search_keys) and (last_run_id=%s or %s)
+          order by case when detail_status in ('pending','network_error','missing_fulltext')then 0 else 1 end,first_seen,external_id''',(key,run_id,resume)).fetchall()
+        return [row[0]for row in rows]
     def history(self,key,fingerprint):
         return [x[0]for x in self.conn.execute('select distinct_count from kr_portals.search_runs where search_key=%s and fingerprint=%s and healthy order by finished_at desc limit 4',(key,fingerprint)).fetchall()]
     def cached(self):
@@ -151,6 +180,7 @@ class Store:
             state_hash=digest(metadata_hash+':'+(current_hash or''))
             self.conn.execute('''insert into kr_portals.versions(provider,external_id,state_hash,metadata,text_hash,first_seen,last_seen,seen_count)
                 values('stepstone',%s,%s,%s,%s,now(),now(),1)on conflict(provider,external_id,state_hash)do update set last_seen=now(),seen_count=kr_portals.versions.seen_count+1''',(native,state_hash,Jsonb(metadata),current_hash))
+            self.conn.execute('update kr_portals.stepstone_candidates set detail_status=%s,detail_checked_at=now()where external_id=%s',(detail['quality'],native))
     def touch(self,run_id,status,summary):
         self.conn.execute("update kr_portals.runs set status=%s,summary=%s,finished_at=case when %s='running' then null else now()end where id=%s",(status,Jsonb(summary),status,run_id))
 
@@ -180,6 +210,7 @@ def sample_rows(rows,per_search=None):
     return rows if per_search is None else rows[:per_search]
 
 class TimeBudgetReached(RuntimeError):pass
+class PersistenceError(RuntimeError):pass
 
 def capture_page(target,rows,deadline):
     merge_search_rows(target,rows)
@@ -191,92 +222,10 @@ def detail_priority(row,cache):
     good=old.get('detail_quality')in {'fulltext','not_modified','cached_fresh'}
     return (has_text and good,has_text,old.get('last_detail_check')or datetime.min.replace(tzinfo=timezone.utc))
 
-def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False):
-    if pagination_pilot:max_details=3
-    limited=bool(limit or max_details or sample_per_search)
-    searches=load_searches(ROOT/('config/stepstone_searches_candidate.json'if sample_per_search else'config/stepstone_searches.json'))
-    if pagination_pilot:searches=[next(s for s in searches if s.name=='Notarfachangestellter')]
-    if limit:searches=searches[:limit]
-    fingerprint=search_fingerprint(searches);run_id=str(uuid.uuid4())
-    conn=psycopg.connect(os.environ['STEPSTONE_DATABASE_URL'],autocommit=True,connect_timeout=20,application_name='stepstone-private-weekly',sslmode='verify-full',sslrootcert=str(Path(__file__).parent/'supabase-ca.crt'))
-    store=Store(conn)
-    if not conn.execute("select pg_try_advisory_lock(713015,1)").fetchone()[0]:raise RuntimeError('another_stepstone_run_is_active')
-    conn.execute('insert into kr_portals.runs(id,status,parser_version,fingerprint,summary)values(%s,%s,%s,%s,%s)',(run_id,'running',VERSION,fingerprint,Jsonb({'limited':limited})))
-    all_rows={};query_summary=[];issues=[];browser=None
-    deadline=time.monotonic()+POLICY['maximum_run_seconds']
-    try:
-        # Cloud comparison: ordinary HTTP timed out; default Chromium failed on
-        # its second navigation. HTTP/1.1 Chromium passed both in the same session.
-        from browser_transport import BrowserSession
-        browser=BrowserSession(http2=False)
-        for spec in searches:
-            if time.monotonic()>=deadline:
-                issues.append('run_time_budget_reached');break
-            key=digest(spec.name);history=store.history(key,fingerprint);chosen=None;errors=[];partial_rows={}
-            page_responses=0
-            def receive_page(rows):
-                nonlocal page_responses
-                capture_page(partial_rows,rows,deadline);page_responses+=1
-                if page_responses%5==0:
-                    store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows),'current_search':{'name':spec.name,'page_responses':page_responses,'unique_jobs_observed':len(partial_rows)}})
-            for attempt in range(POLICY['search_attempts']):
-                try:
-                    client=StepstoneClient(session=browser,delay_seconds=1,timeout_seconds=35,retries=2)
-                    result=client.fetch_search(spec,now().date().isoformat(),max_pages=None if pagination_pilot else sample_pages if sample_per_search else 1 if max_details else None,
-                        on_page_rows=receive_page)
-                    errors=anomalous(len(result.rows),history)
-                    if not result.inventory_complete:
-                        ignored={'explicit_page_limit','unique_inventory_differs_from_declared_total'}if(max_details or sample_per_search)and not pagination_pilot else set()
-                        errors+=[x for x in result.coverage_warnings if x not in ignored]
-                    chosen=result
-                    if not errors:break
-                except Exception as exc:
-                    if isinstance(exc,TimeBudgetReached):
-                        errors=['run_time_budget_reached'];issues.append('run_time_budget_reached');break
-                    errors=[search_error_code(exc)]
-                    print('SEARCH_DIAGNOSTIC',json.dumps({'search':spec.name,'attempt':attempt+1,'errors':errors}),flush=True)
-                if attempt+1<POLICY['search_attempts']:time.sleep(10)
-            count=len(chosen.rows)if chosen else len(partial_rows)
-            if not history and count==0:errors.append('unexpected_initial_zero')
-            healthy=not errors and chosen is not None and not limited
-            conn.execute('insert into kr_portals.search_runs(run_id,search_key,search_name,fingerprint,distinct_count,healthy,diagnostics)values(%s,%s,%s,%s,%s,%s,%s)',(run_id,key,spec.name,fingerprint,count,healthy,Jsonb({'errors':errors})))
-            query_summary.append({'name':spec.name,'count':count,'healthy':healthy,'errors':errors,'sample_only':bool(sample_per_search),'pages':chosen.pages if chosen else None,'scope_complete':chosen.inventory_complete if chosen else False,'declared_total':chosen.declared_total if chosen else None,'offered_pages':chosen.offered_pages if chosen else None})
-            if errors:issues.append('search_quality')
-            if chosen:merge_search_rows(partial_rows,chosen.rows)
-            merge_search_rows(all_rows,sample_rows(list(partial_rows.values()),sample_per_search))
-            print('SEARCH_RESULT',json.dumps(query_summary[-1],ensure_ascii=False),flush=True)
-            store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows)})
-        cache=store.cached();details=DetailClient(browser);quality={};processed=0
-        for row in sorted(all_rows.values(),key=lambda r:detail_priority(r,cache)):
-            if time.monotonic()>=deadline:
-                issues.append('run_time_budget_reached');break
-            if max_details is not None and processed>=max_details:break
-            native=row['Stepstone_ID']or job_id(row['Titel_url']);old=cache.get(native)
-            fresh=old and old['has_fulltext']and old.get('detail_quality')in {'fulltext','not_modified','cached_fresh'}and old['last_detail_check']and old['last_detail_check']>now()-timedelta(days=POLICY['detail_refresh_days'])
-            detail={'quality':'cached_fresh','text':None}if fresh else details.get(row,old)
-            store.save_job(row,detail,run_id);processed+=1
-            quality[detail['quality']]=quality.get(detail['quality'],0)+1
-            if processed%10==0:
-                store.touch(run_id,'running',{'searches':query_summary,'distinct_jobs':len(all_rows),'processed':processed,'details':quality})
-                print('DETAIL_PROGRESS',processed,'/',len(all_rows),flush=True)
-        good=sum(quality.get(k,0)for k in ('fulltext','not_modified','cached_fresh'))
-        if processed==0 or good/max(processed,1)<POLICY['minimum_fulltext_fraction']:issues.append('fulltext_coverage')
-        status='pilot'if limited else'warning'if issues else'complete'
-        summary={'distinct_jobs':len(all_rows),'processed':processed,'details':quality,'searches':query_summary,'issues':sorted(set(issues)),'limited':limited,'unprocessed_searches':len(searches)-len(query_summary),'pending_details':max(0,len(all_rows)-processed),'time_budget_seconds':POLICY['maximum_run_seconds']}
-        store.touch(run_id,status,summary)
-        print('RUN_RESULT',json.dumps(summary,ensure_ascii=False),flush=True)
-        if issues and not limited:notify(summary)
-        return 0 if not issues else 2
-    except Exception as exc:
-        # Do not log connection strings, response bodies, SQL parameter values, or tokens.
-        summary={'issues':['runtime_'+type(exc).__name__]}
-        try:store.touch(run_id,'failed',summary)
-        finally:
-            if not limited:notify(summary)
-        raise RuntimeError(type(exc).__name__)from None
-    finally:
-        if browser:browser.close()
-        conn.close()
+def run(limit=None,max_details=None,sample_per_search=None,sample_pages=2,pagination_pilot=False,repair=False,resume_only=False):
+    from incremental_runtime import run as incremental_run
+    return incremental_run(sys.modules[__name__],limit,max_details,sample_per_search,sample_pages,pagination_pilot,repair,resume_only)
+
 
 def network_probe():
     """Small cloud preflight, no DB, stored text, reverse search or publication."""
@@ -295,8 +244,8 @@ def network_probe():
     return 0 if counts.get('fulltext')else 2
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--sample-pages',type=int,default=2);p.add_argument('--pagination-pilot',action='store_true');p.add_argument('--network-probe',action='store_true')
+    p=argparse.ArgumentParser();p.add_argument('--limit-searches',type=int);p.add_argument('--max-details',type=int);p.add_argument('--sample-per-search',type=int);p.add_argument('--sample-pages',type=int,default=2);p.add_argument('--pagination-pilot',action='store_true');p.add_argument('--network-probe',action='store_true');p.add_argument('--repair-small',action='store_true');p.add_argument('--resume-only',action='store_true')
     a=p.parse_args()
     if any(x is not None and x<1 for x in (a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages)):p.error('limits must be positive')
     if a.pagination_pilot and a.sample_per_search:p.error('pagination pilot and survey are separate modes')
-    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages,a.pagination_pilot))
+    sys.exit(network_probe()if a.network_probe else run(a.limit_searches,a.max_details,a.sample_per_search,a.sample_pages,a.pagination_pilot,a.repair_small,a.resume_only))

@@ -3,11 +3,13 @@
 No proxies, user-agent rotation, CAPTCHA solving or access-control bypass.
 Only public StepStone HTTPS pages, images/fonts/media not downloaded.
 """
-import json,re
+import json,re,time
 from dataclasses import dataclass
 from kanzlei_discovery.stepstone import STATE_MARKER
 from urllib.parse import urlsplit
 import requests
+
+class TransportUnavailable(requests.ConnectionError):pass
 
 @dataclass
 class PageResponse:
@@ -21,12 +23,25 @@ class PageResponse:
 class BrowserSession:
     def __init__(self,http2=True):
         from playwright.sync_api import sync_playwright
-        self.manager=sync_playwright().start();self.browser=self.manager.chromium.launch(headless=True,args=[]if http2 else['--disable-http2'])
-        self.context=self.browser.new_context(locale='de-DE');self.headers={}
+        self.manager=sync_playwright().start();self.http2=http2;self.network_failures=0;self.restart_count=0;self.headers={}
+        self._open()
+    def _open(self,storage=None):
+        self.browser=self.manager.chromium.launch(headless=True,args=[]if self.http2 else['--disable-http2'])
+        options={'locale':'de-DE'}
+        if storage is not None:options['storage_state']=storage
+        self.context=self.browser.new_context(**options)
         self.context.route('**/*',lambda route:route.abort()if route.request.resource_type in {'image','font','media'}else route.continue_())
+    def _network_fault(self):
+        self.network_failures=getattr(self,'network_failures',0)+1
+        if self.network_failures<2 and getattr(self,'manager',None)is not None:
+            # Reset broken network connections while retaining the same cookies,
+            # locale, client configuration and IP. Never used on 403/429/challenges.
+            storage=self.context.storage_state()
+            self.context.close();self.browser.close();time.sleep(8);self._open(storage);self.restart_count+=1
     def get(self,url,timeout=35,**kwargs):
         p=urlsplit(url)
         if p.scheme!='https'or p.hostname!='www.stepstone.de':raise RuntimeError('browser_origin_rejected')
+        if getattr(self,'network_failures',0)>=2:raise TransportUnavailable('consecutive_network_failures')
         page=self.context.new_page()
         try:
             # Do not wait for unrelated scripts/ads to finish parsing. Wait for
@@ -56,14 +71,19 @@ class BrowserSession:
             if p.path.startswith('/jobs/') and response.status==200:
                 state=page.evaluate('() => window.__PRELOADED_STATE__ && window.__PRELOADED_STATE__["app-unifiedResultlist"]')
                 if isinstance(state,dict):content='<script>'+STATE_MARKER+' = '+json.dumps(state,ensure_ascii=False)+';</script>'
+            self.network_failures=0
             return PageResponse(page.url,content,response.status,dict(response.headers))
         except Exception as exc:
-            if type(exc).__name__=='TimeoutError':raise requests.ReadTimeout('browser_navigation_timeout')from None
+            if type(exc).__name__=='TimeoutError':
+                self._network_fault();raise requests.ReadTimeout('browser_navigation_timeout')from None
             if type(exc).__name__=='Error':
                 code=re.search(r'net::ERR_[A-Z0-9_]+',str(exc))
+                self._network_fault()
                 raise requests.ConnectionError('browser_navigation_error'+(':'+code.group()if code else''))from None
             raise
-        finally:page.close()
+        finally:
+            try:page.close()
+            except Exception:pass
     def close(self):
         self.context.close();self.browser.close();self.manager.stop()
 

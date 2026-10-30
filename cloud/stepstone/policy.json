@@ -6,7 +6,10 @@
   "minimum_fulltext_fraction": 0.90,
   "detail_refresh_days": 6,
   "search_attempts": 2,
-  "http_delay_seconds": 1.0,
+  "http_delay_seconds": 2.0,
+  "search_delay_seconds": 10,
+  "search_retry_delay_seconds": 15,
   "maximum_run_seconds": 14400,
+  "large_run_enabled": false,
   "description": "Internal portal archive only. No reverse search, employer crawling, publication, absence closures, or deletion."
 }
