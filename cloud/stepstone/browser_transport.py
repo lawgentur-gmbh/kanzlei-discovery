@@ -19,9 +19,9 @@ class PageResponse:
         if self.status_code>=400:raise requests.HTTPError(f'HTTP {self.status_code}')
 
 class BrowserSession:
-    def __init__(self):
+    def __init__(self,http2=True):
         from playwright.sync_api import sync_playwright
-        self.manager=sync_playwright().start();self.browser=self.manager.chromium.launch(headless=True)
+        self.manager=sync_playwright().start();self.browser=self.manager.chromium.launch(headless=True,args=[]if http2 else['--disable-http2'])
         self.context=self.browser.new_context(locale='de-DE');self.headers={}
         self.context.route('**/*',lambda route:route.abort()if route.request.resource_type in {'image','font','media'}else route.continue_())
     def get(self,url,timeout=35,**kwargs):
@@ -41,7 +41,7 @@ class BrowserSession:
         except Exception as exc:
             if type(exc).__name__=='TimeoutError':raise requests.ReadTimeout('browser_navigation_timeout')from None
             if type(exc).__name__=='Error':
-                code=re.search(r'net::ERR_[A-Z_]+',str(exc))
+                code=re.search(r'net::ERR_[A-Z0-9_]+',str(exc))
                 raise requests.ConnectionError('browser_navigation_error'+(':'+code.group()if code else''))from None
             raise
         finally:page.close()
