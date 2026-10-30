@@ -3,7 +3,7 @@
 No proxies, user-agent rotation, CAPTCHA solving or access-control bypass.
 Only public StepStone HTTPS pages, images/fonts/media not downloaded.
 """
-import json
+import json,re
 from dataclasses import dataclass
 from kanzlei_discovery.stepstone import STATE_MARKER
 from urllib.parse import urlsplit
@@ -29,7 +29,7 @@ class BrowserSession:
         if p.scheme!='https'or p.hostname!='www.stepstone.de':raise RuntimeError('browser_origin_rejected')
         page=self.context.new_page()
         try:
-            response=page.goto(url,wait_until='domcontentloaded',timeout=timeout*1000)
+            response=page.goto(url,wait_until='domcontentloaded',timeout=timeout_milliseconds(timeout))
             if response is None:raise RuntimeError('browser_missing_response')
             final=urlsplit(page.url)
             if final.hostname!='www.stepstone.de'or final.scheme!='https':raise RuntimeError('browser_redirect_rejected')
@@ -40,7 +40,15 @@ class BrowserSession:
             return PageResponse(page.url,content,response.status,dict(response.headers))
         except Exception as exc:
             if type(exc).__name__=='TimeoutError':raise requests.ReadTimeout('browser_navigation_timeout')from None
+            if type(exc).__name__=='Error':
+                code=re.search(r'net::ERR_[A-Z_]+',str(exc))
+                raise requests.ConnectionError('browser_navigation_error'+(':'+code.group()if code else''))from None
             raise
         finally:page.close()
     def close(self):
         self.context.close();self.browser.close();self.manager.stop()
+
+def timeout_milliseconds(timeout):
+    # requests uses (connect, read), while Playwright accepts one number.
+    if isinstance(timeout,(tuple,list)):timeout=timeout[-1]
+    return int(float(timeout)*1000)

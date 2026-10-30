@@ -164,6 +164,9 @@ def notify(summary,test=False):
     body=intro+'\n\n```json\n'+json.dumps(summary,ensure_ascii=False,indent=2)+'\n```\n\nKeine Stellen veröffentlicht oder gelöscht. Workflow: '+os.environ.get('GITHUB_SERVER_URL','https://github.com')+'/'+repo+'/actions/runs/'+os.environ.get('GITHUB_RUN_ID','')
     r=requests.get(api,params={'state':'open','per_page':100},headers=headers,timeout=20);r.raise_for_status()
     existing=next((i for i in r.json()if i.get('title')==title),None)
+    if existing and summary.get('issues')==['cloud_workflow_failed_or_timed_out']:
+        print('ALERT_ALREADY_RECORDED',existing['html_url'])
+        return
     if existing:
         response=requests.patch(existing['url'],headers=headers,json={'body':body},timeout=20)
     else:

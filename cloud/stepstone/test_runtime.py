@@ -1,5 +1,6 @@
 import unittest,json
 from runtime import extract_detail,anomalous,portal_url
+from browser_transport import timeout_milliseconds
 URL='https://www.stepstone.de/stellenangebote--Test--12345678-inline.html'
 TEXT='Ihre Aufgaben Sie beraten in Rechtsfragen. Ihr Profil Sie sind Volljurist. Wir bieten gute Bedingungen. '*10
 class DetailTests(unittest.TestCase):
@@ -22,4 +23,6 @@ class DetailTests(unittest.TestCase):
     def test_small_counts(self):self.assertFalse(anomalous(5,[10]))
     def test_first_run_no_fake_baseline(self):self.assertFalse(anomalous(50,[]))
     def test_zero_always_alerts(self):self.assertTrue(anomalous(0,[4,5,4]))
+    def test_browser_read_timeout_tuple(self):self.assertEqual(timeout_milliseconds((10,30)),30000)
+    def test_browser_search_timeout(self):self.assertEqual(timeout_milliseconds(35),35000)
 if __name__=='__main__':unittest.main()
