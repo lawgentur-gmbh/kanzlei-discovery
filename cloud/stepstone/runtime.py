@@ -145,15 +145,16 @@ class Store:
     def touch(self,run_id,status,summary):
         self.conn.execute('update kr_portals.runs set status=%s,summary=%s,finished_at=now() where id=%s',(status,Jsonb(summary),run_id))
 
-def notify(summary):
+def notify(summary,test=False):
     """One assigned GitHub notification per persistent weekly incident."""
     token=os.environ.get('GITHUB_TOKEN');repo=os.environ.get('GITHUB_REPOSITORY')
     if not token or not repo:raise RuntimeError('alert_channel_not_configured')
     api=f'https://api.github.com/repos/{repo}/issues'
     headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
-    week=now().strftime('%G-W%V');title=f'StepStone-Prüfung erforderlich ({week})'
+    week=now().strftime('%G-W%V');title=(f'StepStone-Archiv: Benachrichtigungstest ({week})'if test else f'StepStone-Prüfung erforderlich ({week})')
     # Public repository: counts/error codes only, no ads, texts, secret values or personal data.
-    body='Der interne Sonntagslauf benötigt Prüfung. Nach begrenztem Wiederholungsversuch bleiben Abweichungen bestehen.\n\n```json\n'+json.dumps(summary,ensure_ascii=False,indent=2)+'\n```\n\nKeine Stellen veröffentlicht oder gelöscht. Workflow: '+os.environ.get('GITHUB_SERVER_URL','https://github.com')+'/'+repo+'/actions/runs/'+os.environ.get('GITHUB_RUN_ID','')
+    intro='Einmaliger Einrichtungstest des Warnwegs; keine Störung gemeldet.'if test else'Der interne Sonntagslauf benötigt Prüfung. Nach begrenztem Wiederholungsversuch bleiben Abweichungen bestehen.'
+    body=intro+'\n\n```json\n'+json.dumps(summary,ensure_ascii=False,indent=2)+'\n```\n\nKeine Stellen veröffentlicht oder gelöscht. Workflow: '+os.environ.get('GITHUB_SERVER_URL','https://github.com')+'/'+repo+'/actions/runs/'+os.environ.get('GITHUB_RUN_ID','')
     r=requests.get(api,params={'state':'open','per_page':100},headers=headers,timeout=20);r.raise_for_status()
     existing=next((i for i in r.json()if i.get('title')==title),None)
     if existing:

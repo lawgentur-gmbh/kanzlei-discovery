@@ -6,7 +6,7 @@ on:
       mode:
         description: 'probe: no DB; pilot: limited DB test; full: weekly acquisition'
         type: choice
-        options: [probe, pilot, full]
+        options: [probe, pilot, alert_test, full]
         default: probe
 permissions:
   contents: read
@@ -35,7 +35,9 @@ jobs:
         run: python -m unittest discover -s cloud/stepstone -p 'test_*.py'
       - name: Acquire portal jobs into private database only
         run: |
-          if [ "${{ inputs.mode }}" = "probe" ]; then
+          if [ "${{ inputs.mode }}" = "alert_test" ]; then
+            python cloud/stepstone/alert.py --test
+          elif [ "${{ inputs.mode }}" = "probe" ]; then
             python cloud/stepstone/runtime.py --network-probe
           elif [ "${{ inputs.mode }}" = "pilot" ]; then
             python cloud/stepstone/runtime.py --limit-searches 1 --max-details 3
